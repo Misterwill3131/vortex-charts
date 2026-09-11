@@ -68,6 +68,13 @@ type TargetRange = {
 interface VortexCandleChartProps {
     candles: Candle[];
     priceLines?: PriceLine[];
+    swingHigh?: number;
+    swingLow?: number;
+    spotPrice?: number;
+    atrBounds?: {
+        upper?: number;
+        lower?: number;
+    };
     height?: number;
     className?: string;
     timeVisible?: boolean;
@@ -89,12 +96,16 @@ interface VortexRangeChartProps {
 declare const VortexRangeChart: React.FC<VortexRangeChartProps>;
 
 interface VortexConeChartProps {
-    candles: Candle[];
-    currentPrice: number;
-    expirationDate: string;
+    candles?: Candle[];
+    historicalCandles?: Candle[];
+    currentPrice?: number;
+    spotPrice?: number;
+    expirationDate?: string;
+    expectedMove?: ExpectedMoveSpec;
+    targetRange?: TargetRange;
     dte?: number;
-    rangeHigh: number;
-    rangeLow: number;
+    rangeHigh?: number;
+    rangeLow?: number;
     height?: number;
     className?: string;
     theme?: Partial<typeof VORTEX_THEME>;

@@ -14,6 +14,10 @@ import type { Candle, PriceLine } from "../types";
 export interface VortexCandleChartProps {
   candles: Candle[];
   priceLines?: PriceLine[];
+  swingHigh?: number;
+  swingLow?: number;
+  spotPrice?: number;
+  atrBounds?: { upper?: number; lower?: number };
   height?: number;
   className?: string;
   timeVisible?: boolean;
@@ -24,6 +28,10 @@ export interface VortexCandleChartProps {
 export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
   candles,
   priceLines = [],
+  swingHigh,
+  swingLow,
+  spotPrice,
+  atrBounds,
   height = 300,
   className = "",
   timeVisible = false,
@@ -79,7 +87,6 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
     });
     seriesRef.current = candleSeries;
 
-    // Deduplicate and format candles
     const formattedData = candles.map((c) => ({
       time: formatCandleTime(c.t, isIntraday) as any,
       open: c.open,
@@ -94,7 +101,63 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
 
     candleSeries.setData(uniqueByTime);
 
-    // Apply price lines
+    // Convenience lines
+    if (typeof swingHigh === "number" && swingHigh > 0) {
+      candleSeries.createPriceLine({
+        price: swingHigh,
+        color: mergedColors.bearish,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: `20D High $${swingHigh.toFixed(2)}`,
+      });
+    }
+
+    if (typeof swingLow === "number" && swingLow > 0) {
+      candleSeries.createPriceLine({
+        price: swingLow,
+        color: mergedColors.bullish,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: `20D Low $${swingLow.toFixed(2)}`,
+      });
+    }
+
+    if (typeof spotPrice === "number" && spotPrice > 0) {
+      candleSeries.createPriceLine({
+        price: spotPrice,
+        color: mergedColors.spot,
+        lineWidth: 2,
+        lineStyle: LineStyle.Solid,
+        axisLabelVisible: true,
+        title: `Spot $${spotPrice.toFixed(2)}`,
+      });
+    }
+
+    if (atrBounds?.upper && atrBounds.upper > 0) {
+      candleSeries.createPriceLine({
+        price: atrBounds.upper,
+        color: "rgba(234, 179, 8, 0.7)",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        axisLabelVisible: false,
+        title: "ATR Upper",
+      });
+    }
+
+    if (atrBounds?.lower && atrBounds.lower > 0) {
+      candleSeries.createPriceLine({
+        price: atrBounds.lower,
+        color: "rgba(234, 179, 8, 0.7)",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        axisLabelVisible: false,
+        title: "ATR Lower",
+      });
+    }
+
+    // Custom price lines
     priceLines.forEach((line) => {
       candleSeries.createPriceLine({
         price: line.price,
@@ -117,7 +180,7 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
       window.removeEventListener("resize", handleResize);
       chart.remove();
     };
-  }, [candles, priceLines, height, timeVisible, isIntraday, mergedColors]);
+  }, [candles, priceLines, swingHigh, swingLow, spotPrice, atrBounds, height, timeVisible, isIntraday, mergedColors]);
 
   return (
     <div

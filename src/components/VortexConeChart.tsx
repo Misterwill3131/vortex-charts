@@ -7,15 +7,19 @@ import {
   type IChartApi,
 } from "lightweight-charts";
 import { VORTEX_THEME } from "../theme/tokens";
-import type { Candle } from "../types";
+import type { Candle, ExpectedMoveSpec, TargetRange } from "../types";
 
 export interface VortexConeChartProps {
-  candles: Candle[];
-  currentPrice: number;
-  expirationDate: string; // YYYY-MM-DD
+  candles?: Candle[];
+  historicalCandles?: Candle[];
+  currentPrice?: number;
+  spotPrice?: number;
+  expirationDate?: string;
+  expectedMove?: ExpectedMoveSpec;
+  targetRange?: TargetRange;
   dte?: number;
-  rangeHigh: number;
-  rangeLow: number;
+  rangeHigh?: number;
+  rangeLow?: number;
   height?: number;
   className?: string;
   theme?: Partial<typeof VORTEX_THEME>;
@@ -23,8 +27,12 @@ export interface VortexConeChartProps {
 
 export const VortexConeChart: React.FC<VortexConeChartProps> = ({
   candles,
+  historicalCandles,
   currentPrice,
+  spotPrice,
   expirationDate,
+  expectedMove,
+  targetRange,
   dte = 1,
   rangeHigh,
   rangeLow,
@@ -36,6 +44,14 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
   const chartRef = useRef<IChartApi | null>(null);
 
   const mergedColors = { ...VORTEX_THEME.colors, ...(theme.colors || {}) };
+
+  // Resolve normalized inputs
+  const resolvedCandles = candles || historicalCandles || [];
+  const resolvedSpot = spotPrice ?? currentPrice ?? 0;
+  const resolvedHigh = rangeHigh ?? targetRange?.high ?? (expectedMove ? resolvedSpot + expectedMove.moveAbs : 0);
+  const resolvedLow = rangeLow ?? targetRange?.low ?? (expectedMove ? resolvedSpot - expectedMove.moveAbs : 0);
+  const resolvedExpDate = expirationDate || expectedMove?.expiration || new Date().toISOString().slice(0, 10);
+  const resolvedDte = dte ?? expectedMove?.dte ?? 1;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -79,7 +95,7 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
       crosshairMarkerVisible: true,
     });
 
-    const histData = candles.map((c) => ({
+    const histData = resolvedCandles.map((c) => ({
       time: new Date(c.t).toISOString().slice(0, 10),
       value: c.close,
     }));
@@ -91,13 +107,13 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
     historySeries.setData(uniqueHist);
 
     // 2. Cône de projection forward (Spot -> Expiration)
-    if (uniqueHist.length > 0) {
+    if (uniqueHist.length > 0 && resolvedSpot > 0 && resolvedHigh > 0 && resolvedLow > 0) {
       const lastPoint = uniqueHist[uniqueHist.length - 1];
 
-      let forwardDateStr = expirationDate;
+      let forwardDateStr = resolvedExpDate;
       if (forwardDateStr === lastPoint.time) {
         const d = new Date(lastPoint.time);
-        d.setDate(d.getDate() + Math.max(1, dte));
+        d.setDate(d.getDate() + Math.max(1, resolvedDte));
         forwardDateStr = d.toISOString().slice(0, 10);
       }
 
@@ -109,8 +125,8 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
         lineStyle: LineStyle.Dashed,
       });
       upperConeSeries.setData([
-        { time: lastPoint.time, value: currentPrice },
-        { time: forwardDateStr, value: rangeHigh },
+        { time: lastPoint.time, value: resolvedSpot },
+        { time: forwardDateStr, value: resolvedHigh },
       ]);
 
       // Ligne inférieure du cône (-move)
@@ -121,36 +137,36 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
         lineStyle: LineStyle.Dashed,
       });
       lowerConeSeries.setData([
-        { time: lastPoint.time, value: currentPrice },
-        { time: forwardDateStr, value: rangeLow },
+        { time: lastPoint.time, value: resolvedSpot },
+        { time: forwardDateStr, value: resolvedLow },
       ]);
 
       // Lignes de prix cibles
       upperConeSeries.createPriceLine({
-        price: rangeHigh,
+        price: resolvedHigh,
         color: mergedColors.neutral,
         lineWidth: 1,
         lineStyle: LineStyle.Dotted,
         axisLabelVisible: true,
-        title: `Upper Target $${rangeHigh.toFixed(2)}`,
+        title: `Upper Target $${resolvedHigh.toFixed(2)}`,
       });
 
       lowerConeSeries.createPriceLine({
-        price: rangeLow,
+        price: resolvedLow,
         color: mergedColors.neutral,
         lineWidth: 1,
         lineStyle: LineStyle.Dotted,
         axisLabelVisible: true,
-        title: `Lower Target $${rangeLow.toFixed(2)}`,
+        title: `Lower Target $${resolvedLow.toFixed(2)}`,
       });
 
       historySeries.createPriceLine({
-        price: currentPrice,
+        price: resolvedSpot,
         color: mergedColors.spot,
         lineWidth: 1,
         lineStyle: LineStyle.Solid,
         axisLabelVisible: true,
-        title: `Spot $${currentPrice.toFixed(2)}`,
+        title: `Spot $${resolvedSpot.toFixed(2)}`,
       });
     }
 
@@ -165,7 +181,16 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
       window.removeEventListener("resize", handleResize);
       chart.remove();
     };
-  }, [candles, currentPrice, expirationDate, dte, rangeHigh, rangeLow, height, mergedColors]);
+  }, [
+    resolvedCandles,
+    resolvedSpot,
+    resolvedExpDate,
+    resolvedDte,
+    resolvedHigh,
+    resolvedLow,
+    height,
+    mergedColors,
+  ]);
 
   return (
     <div

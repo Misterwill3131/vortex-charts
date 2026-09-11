@@ -87,6 +87,10 @@ var import_jsx_runtime = require("react/jsx-runtime");
 var VortexCandleChart = ({
   candles,
   priceLines = [],
+  swingHigh,
+  swingLow,
+  spotPrice,
+  atrBounds,
   height = 300,
   className = "",
   timeVisible = false,
@@ -147,6 +151,56 @@ var VortexCandleChart = ({
       new Map(formattedData.map((d) => [d.time, d])).values()
     ).sort((a, b) => a.time < b.time ? -1 : 1);
     candleSeries.setData(uniqueByTime);
+    if (typeof swingHigh === "number" && swingHigh > 0) {
+      candleSeries.createPriceLine({
+        price: swingHigh,
+        color: mergedColors.bearish,
+        lineWidth: 1,
+        lineStyle: import_lightweight_charts2.LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: `20D High $${swingHigh.toFixed(2)}`
+      });
+    }
+    if (typeof swingLow === "number" && swingLow > 0) {
+      candleSeries.createPriceLine({
+        price: swingLow,
+        color: mergedColors.bullish,
+        lineWidth: 1,
+        lineStyle: import_lightweight_charts2.LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: `20D Low $${swingLow.toFixed(2)}`
+      });
+    }
+    if (typeof spotPrice === "number" && spotPrice > 0) {
+      candleSeries.createPriceLine({
+        price: spotPrice,
+        color: mergedColors.spot,
+        lineWidth: 2,
+        lineStyle: import_lightweight_charts2.LineStyle.Solid,
+        axisLabelVisible: true,
+        title: `Spot $${spotPrice.toFixed(2)}`
+      });
+    }
+    if (atrBounds?.upper && atrBounds.upper > 0) {
+      candleSeries.createPriceLine({
+        price: atrBounds.upper,
+        color: "rgba(234, 179, 8, 0.7)",
+        lineWidth: 1,
+        lineStyle: import_lightweight_charts2.LineStyle.Dotted,
+        axisLabelVisible: false,
+        title: "ATR Upper"
+      });
+    }
+    if (atrBounds?.lower && atrBounds.lower > 0) {
+      candleSeries.createPriceLine({
+        price: atrBounds.lower,
+        color: "rgba(234, 179, 8, 0.7)",
+        lineWidth: 1,
+        lineStyle: import_lightweight_charts2.LineStyle.Dotted,
+        axisLabelVisible: false,
+        title: "ATR Lower"
+      });
+    }
     priceLines.forEach((line) => {
       candleSeries.createPriceLine({
         price: line.price,
@@ -166,7 +220,7 @@ var VortexCandleChart = ({
       window.removeEventListener("resize", handleResize);
       chart.remove();
     };
-  }, [candles, priceLines, height, timeVisible, isIntraday, mergedColors]);
+  }, [candles, priceLines, swingHigh, swingLow, spotPrice, atrBounds, height, timeVisible, isIntraday, mergedColors]);
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
     "div",
     {
@@ -340,8 +394,12 @@ var import_lightweight_charts4 = require("lightweight-charts");
 var import_jsx_runtime3 = require("react/jsx-runtime");
 var VortexConeChart = ({
   candles,
+  historicalCandles,
   currentPrice,
+  spotPrice,
   expirationDate,
+  expectedMove,
+  targetRange,
   dte = 1,
   rangeHigh,
   rangeLow,
@@ -352,6 +410,12 @@ var VortexConeChart = ({
   const containerRef = (0, import_react3.useRef)(null);
   const chartRef = (0, import_react3.useRef)(null);
   const mergedColors = { ...VORTEX_THEME.colors, ...theme.colors || {} };
+  const resolvedCandles = candles || historicalCandles || [];
+  const resolvedSpot = spotPrice ?? currentPrice ?? 0;
+  const resolvedHigh = rangeHigh ?? targetRange?.high ?? (expectedMove ? resolvedSpot + expectedMove.moveAbs : 0);
+  const resolvedLow = rangeLow ?? targetRange?.low ?? (expectedMove ? resolvedSpot - expectedMove.moveAbs : 0);
+  const resolvedExpDate = expirationDate || expectedMove?.expiration || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const resolvedDte = dte ?? expectedMove?.dte ?? 1;
   (0, import_react3.useEffect)(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -389,7 +453,7 @@ var VortexConeChart = ({
       lineStyle: import_lightweight_charts4.LineStyle.Solid,
       crosshairMarkerVisible: true
     });
-    const histData = candles.map((c) => ({
+    const histData = resolvedCandles.map((c) => ({
       time: new Date(c.t).toISOString().slice(0, 10),
       value: c.close
     }));
@@ -397,12 +461,12 @@ var VortexConeChart = ({
       new Map(histData.map((d) => [d.time, d])).values()
     ).sort((a, b) => a.time < b.time ? -1 : 1);
     historySeries.setData(uniqueHist);
-    if (uniqueHist.length > 0) {
+    if (uniqueHist.length > 0 && resolvedSpot > 0 && resolvedHigh > 0 && resolvedLow > 0) {
       const lastPoint = uniqueHist[uniqueHist.length - 1];
-      let forwardDateStr = expirationDate;
+      let forwardDateStr = resolvedExpDate;
       if (forwardDateStr === lastPoint.time) {
         const d = new Date(lastPoint.time);
-        d.setDate(d.getDate() + Math.max(1, dte));
+        d.setDate(d.getDate() + Math.max(1, resolvedDte));
         forwardDateStr = d.toISOString().slice(0, 10);
       }
       const upperConeSeries = chart.addSeries(import_lightweight_charts4.LineSeries, {
@@ -412,8 +476,8 @@ var VortexConeChart = ({
         lineStyle: import_lightweight_charts4.LineStyle.Dashed
       });
       upperConeSeries.setData([
-        { time: lastPoint.time, value: currentPrice },
-        { time: forwardDateStr, value: rangeHigh }
+        { time: lastPoint.time, value: resolvedSpot },
+        { time: forwardDateStr, value: resolvedHigh }
       ]);
       const lowerConeSeries = chart.addSeries(import_lightweight_charts4.LineSeries, {
         priceScaleId: "right",
@@ -422,32 +486,32 @@ var VortexConeChart = ({
         lineStyle: import_lightweight_charts4.LineStyle.Dashed
       });
       lowerConeSeries.setData([
-        { time: lastPoint.time, value: currentPrice },
-        { time: forwardDateStr, value: rangeLow }
+        { time: lastPoint.time, value: resolvedSpot },
+        { time: forwardDateStr, value: resolvedLow }
       ]);
       upperConeSeries.createPriceLine({
-        price: rangeHigh,
+        price: resolvedHigh,
         color: mergedColors.neutral,
         lineWidth: 1,
         lineStyle: import_lightweight_charts4.LineStyle.Dotted,
         axisLabelVisible: true,
-        title: `Upper Target $${rangeHigh.toFixed(2)}`
+        title: `Upper Target $${resolvedHigh.toFixed(2)}`
       });
       lowerConeSeries.createPriceLine({
-        price: rangeLow,
+        price: resolvedLow,
         color: mergedColors.neutral,
         lineWidth: 1,
         lineStyle: import_lightweight_charts4.LineStyle.Dotted,
         axisLabelVisible: true,
-        title: `Lower Target $${rangeLow.toFixed(2)}`
+        title: `Lower Target $${resolvedLow.toFixed(2)}`
       });
       historySeries.createPriceLine({
-        price: currentPrice,
+        price: resolvedSpot,
         color: mergedColors.spot,
         lineWidth: 1,
         lineStyle: import_lightweight_charts4.LineStyle.Solid,
         axisLabelVisible: true,
-        title: `Spot $${currentPrice.toFixed(2)}`
+        title: `Spot $${resolvedSpot.toFixed(2)}`
       });
     }
     chart.timeScale().fitContent();
@@ -459,7 +523,16 @@ var VortexConeChart = ({
       window.removeEventListener("resize", handleResize);
       chart.remove();
     };
-  }, [candles, currentPrice, expirationDate, dte, rangeHigh, rangeLow, height, mergedColors]);
+  }, [
+    resolvedCandles,
+    resolvedSpot,
+    resolvedExpDate,
+    resolvedDte,
+    resolvedHigh,
+    resolvedLow,
+    height,
+    mergedColors
+  ]);
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
     "div",
     {
