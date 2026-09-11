@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from "react";
+import React, { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import type { Candle, ExpectedMoveSpec, TargetRange } from "../types";
 import { VORTEX_THEME } from "../theme/tokens";
 import { computeBounds, indexToX, xToIndex, yToPrice } from "../engine/coordinates";
@@ -7,6 +7,7 @@ import { drawLineSeries, type DataPoint } from "../engine/lines";
 import { drawPriceLines } from "../engine/price-lines";
 import { drawVortexWatermark } from "../engine/watermark";
 import { drawCrosshair, type HoverState } from "../engine/interaction";
+import { drawRulerOverlay, type RulerState } from "../engine/ruler";
 import { setupCanvasDpi } from "../engine/canvas";
 import { formatCandleTime, formatPrice } from "../utils/chart-defaults";
 
@@ -48,6 +49,13 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
   const [containerWidth, setContainerWidth] = useState<number>(600);
   const [hover, setHover] = useState<HoverState | null>(null);
 
+  // Ruler state
+  const [ruler, setRuler] = useState<RulerState>({
+    active: false,
+    startPoint: null,
+    currentPoint: null,
+  });
+
   const mergedColors = useMemo(() => ({ ...VORTEX_THEME.colors, ...(theme.colors || {}) }), [theme]);
 
   // Resolve normalized inputs
@@ -58,9 +66,14 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
     ).sort((a, b) => a.t - b.t);
   }, [candles, historicalCandles]);
 
-  const resolvedSpot = spotPrice ?? currentPrice ?? (resolvedCandles.length > 0 ? resolvedCandles[resolvedCandles.length - 1].close : 0);
-  const resolvedHigh = rangeHigh ?? targetRange?.high ?? (expectedMove ? resolvedSpot + expectedMove.moveAbs : 0);
-  const resolvedLow = rangeLow ?? targetRange?.low ?? (expectedMove ? resolvedSpot - expectedMove.moveAbs : 0);
+  const resolvedSpot =
+    spotPrice ??
+    currentPrice ??
+    (resolvedCandles.length > 0 ? resolvedCandles[resolvedCandles.length - 1].close : 0);
+  const resolvedHigh =
+    rangeHigh ?? targetRange?.high ?? (expectedMove ? resolvedSpot + expectedMove.moveAbs : 0);
+  const resolvedLow =
+    rangeLow ?? targetRange?.low ?? (expectedMove ? resolvedSpot - expectedMove.moveAbs : 0);
   const resolvedExpDate = expirationDate || expectedMove?.expiration || "Expiry";
   const resolvedDte = dte ?? expectedMove?.dte ?? 1;
 
@@ -233,8 +246,13 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
       drawVortexWatermark(ctx, bounds);
     }
 
-    // 6. Crosshair on hover
-    if (hover && hover.candle) {
+    // 6. Ruler measurement
+    if (ruler.active) {
+      drawRulerOverlay(ctx, bounds, ruler);
+    }
+
+    // 7. Crosshair on hover
+    if (hover && hover.candle && !ruler.active) {
       const cursorPrice = yToPrice(hover.mouseY, bounds);
       const timeStr = formatCandleTime(hover.candle.t, false);
       drawCrosshair(ctx, bounds, hover, cursorPrice, timeStr);
@@ -251,9 +269,37 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
     priceLines,
     timeLabels,
     hover,
+    ruler,
     showWatermark,
     mergedColors,
   ]);
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!e.shiftKey) return;
+    const canvas = canvasRef.current;
+    if (!canvas || resolvedCandles.length === 0) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const idx = xToIndex(mouseX, totalSlots, bounds);
+    const candle = resolvedCandles[idx] || null;
+    const price = yToPrice(mouseY, bounds);
+
+    const point = {
+      x: mouseX,
+      y: mouseY,
+      price,
+      time: candle?.t,
+      index: idx,
+    };
+    setRuler({
+      active: true,
+      startPoint: point,
+      currentPoint: point,
+    });
+  };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -265,39 +311,99 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
 
     const idx = xToIndex(mouseX, totalSlots, bounds);
     const candle = resolvedCandles[idx] || null;
+    const price = yToPrice(mouseY, bounds);
+
+    if (ruler.active && ruler.startPoint) {
+      setRuler((prev) => ({
+        ...prev,
+        currentPoint: {
+          x: mouseX,
+          y: mouseY,
+          price,
+          time: candle?.t,
+          index: idx,
+        },
+      }));
+      return;
+    }
 
     setHover({ mouseX, mouseY, index: idx, candle });
+  };
+
+  const handleMouseUp = () => {
+    // ruler stays active until clicked again
   };
 
   const handleMouseLeave = () => {
     setHover(null);
   };
 
+  // Keyboard shortcut (Escape clears ruler)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setRuler({ active: false, startPoint: null, currentPoint: null });
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const spotDiff = useMemo(() => {
+    if (!hover?.candle || resolvedSpot <= 0) return null;
+    const diff = hover.candle.close - resolvedSpot;
+    const pct = (diff / resolvedSpot) * 100;
+    const isBullish = diff >= 0;
+    const sign = isBullish ? "+" : "";
+    return {
+      text: `${sign}$${formatPrice(diff)} (${sign}${pct.toFixed(2)}% vs Spot)`,
+      isBullish,
+    };
+  }, [hover, resolvedSpot]);
+
   return (
     <div
       ref={containerRef}
-      className={`relative w-full overflow-hidden select-none ${className}`}
+      className={`relative w-full overflow-hidden select-none group ${className}`}
       style={{ height }}
+      onClick={() => {
+        if (ruler.active && !ruler.startPoint) {
+          setRuler({ active: false, startPoint: null, currentPoint: null });
+        }
+      }}
     >
       <canvas
         ref={canvasRef}
+        onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
-        className="cursor-crosshair block"
+        className="cursor-crosshair block w-full h-full"
       />
 
-
       {/* Floating Glassmorphism Tooltip */}
-      {hover && hover.candle && (
-        <div className="pointer-events-none absolute top-2 left-3 z-20 flex items-center gap-2.5 rounded-lg border border-white/10 bg-black/80 px-2.5 py-1 text-[11px] backdrop-blur-md shadow-lg tabular-nums">
-          <span className="font-semibold text-zinc-400">
+      {hover && hover.candle && !ruler.active && (
+        <div className="pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-2.5 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl tabular-nums">
+          <span className="font-semibold text-zinc-300">
             {formatCandleTime(hover.candle.t, false)}
           </span>
-          <div className="h-3 w-px bg-white/10" />
+          <div className="h-3 w-px bg-white/15" />
           <span>
             <strong className="text-zinc-500 font-normal">Close: </strong>
             <span className="font-bold text-sky-400">${formatPrice(hover.candle.close)}</span>
           </span>
+          {spotDiff && (
+            <>
+              <div className="h-3 w-px bg-white/15" />
+              <span
+                className={`font-medium ${
+                  spotDiff.isBullish ? "text-emerald-400" : "text-rose-400"
+                }`}
+              >
+                {spotDiff.text}
+              </span>
+            </>
+          )}
         </div>
       )}
     </div>

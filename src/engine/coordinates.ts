@@ -87,3 +87,36 @@ export function xToIndex(x: number, totalCount: number, bounds: ChartBounds): nu
   const raw = Math.floor((x - padding.left) / step);
   return Math.max(0, Math.min(totalCount - 1, raw));
 }
+
+export interface ViewportLike {
+  startIndex: number;
+  endIndex: number;
+  totalCount: number;
+}
+
+/**
+ * Maps a global data index to an X coordinate using the active viewport window.
+ */
+export function viewportIndexToX(
+  globalIndex: number,
+  viewport: ViewportLike,
+  bounds: ChartBounds
+): number {
+  const visibleCount = Math.max(1, viewport.endIndex - viewport.startIndex + 1);
+  const localIndex = globalIndex - viewport.startIndex;
+  return indexToX(localIndex, visibleCount, bounds);
+}
+
+/**
+ * Maps an X coordinate on the chart to a global data index using the active viewport window.
+ */
+export function viewportXToIndex(
+  x: number,
+  viewport: ViewportLike,
+  bounds: ChartBounds
+): number {
+  const visibleCount = Math.max(1, viewport.endIndex - viewport.startIndex + 1);
+  const localIndex = xToIndex(x, visibleCount, bounds);
+  if (localIndex < 0) return -1;
+  return Math.max(0, Math.min(viewport.totalCount - 1, viewport.startIndex + localIndex));
+}

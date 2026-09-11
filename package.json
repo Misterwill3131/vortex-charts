@@ -1,7 +1,7 @@
 {
   "name": "vortex-charts",
-  "version": "0.2.0",
-  "description": "Official VorteX proprietary financial & quantitative charting library (Pure Canvas 2D)",
+  "version": "0.3.0",
+  "description": "Official VorteX proprietary financial & quantitative charting library (Pure Canvas 2D Interactive)",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

@@ -1,7 +1,7 @@
 "use client";
 
 // src/components/VortexCandleChart.tsx
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 
 // src/theme/tokens.ts
 var VORTEX_THEME = {
@@ -87,6 +87,90 @@ function xToIndex(x, totalCount, bounds) {
   const step = plotWidth / totalCount;
   const raw = Math.floor((x - padding.left) / step);
   return Math.max(0, Math.min(totalCount - 1, raw));
+}
+function viewportIndexToX(globalIndex, viewport, bounds) {
+  const visibleCount = Math.max(1, viewport.endIndex - viewport.startIndex + 1);
+  const localIndex = globalIndex - viewport.startIndex;
+  return indexToX(localIndex, visibleCount, bounds);
+}
+function viewportXToIndex(x, viewport, bounds) {
+  const visibleCount = Math.max(1, viewport.endIndex - viewport.startIndex + 1);
+  const localIndex = xToIndex(x, visibleCount, bounds);
+  if (localIndex < 0) return -1;
+  return Math.max(0, Math.min(viewport.totalCount - 1, viewport.startIndex + localIndex));
+}
+
+// src/engine/viewport.ts
+function createViewport(totalCount, minVisible = 8) {
+  const safeCount = Math.max(0, totalCount);
+  return {
+    startIndex: 0,
+    endIndex: Math.max(0, safeCount - 1),
+    totalCount: safeCount,
+    minVisible: Math.min(minVisible, Math.max(1, safeCount))
+  };
+}
+function isViewportZoomed(viewport) {
+  if (viewport.totalCount <= 0) return false;
+  return viewport.startIndex > 0 || viewport.endIndex < viewport.totalCount - 1;
+}
+function getZoomLevel(viewport) {
+  const visibleCount = getVisibleCount(viewport);
+  if (visibleCount <= 0 || viewport.totalCount <= 0) return 1;
+  const ratio = viewport.totalCount / visibleCount;
+  return Math.round(ratio * 10) / 10;
+}
+function getVisibleCount(viewport) {
+  if (viewport.totalCount <= 0) return 0;
+  return Math.max(1, viewport.endIndex - viewport.startIndex + 1);
+}
+function zoomViewport(viewport, factor, anchorRatio = 0.5) {
+  const { totalCount, minVisible, startIndex, endIndex } = viewport;
+  if (totalCount <= minVisible) return viewport;
+  const currentSpan = endIndex - startIndex + 1;
+  const targetSpan = Math.round(currentSpan / factor);
+  const newSpan = Math.max(minVisible, Math.min(totalCount, targetSpan));
+  if (newSpan === currentSpan) return viewport;
+  const spanDelta = newSpan - currentSpan;
+  const clampedAnchor = Math.max(0, Math.min(1, anchorRatio));
+  let newStart = Math.round(startIndex - spanDelta * clampedAnchor);
+  let newEnd = newStart + newSpan - 1;
+  if (newStart < 0) {
+    newEnd += -newStart;
+    newStart = 0;
+  }
+  if (newEnd >= totalCount) {
+    const overflow = newEnd - (totalCount - 1);
+    newStart = Math.max(0, newStart - overflow);
+    newEnd = totalCount - 1;
+  }
+  return {
+    ...viewport,
+    startIndex: Math.max(0, newStart),
+    endIndex: Math.min(totalCount - 1, newEnd)
+  };
+}
+function panViewport(viewport, deltaBars) {
+  const { totalCount, startIndex, endIndex } = viewport;
+  if (totalCount <= 0 || deltaBars === 0) return viewport;
+  const span = endIndex - startIndex + 1;
+  let newStart = startIndex - deltaBars;
+  let newEnd = newStart + span - 1;
+  if (newStart < 0) {
+    newStart = 0;
+    newEnd = Math.min(totalCount - 1, span - 1);
+  } else if (newEnd >= totalCount) {
+    newEnd = totalCount - 1;
+    newStart = Math.max(0, totalCount - span);
+  }
+  return {
+    ...viewport,
+    startIndex: newStart,
+    endIndex: newEnd
+  };
+}
+function resetViewport(totalCount, minVisible = 8) {
+  return createViewport(totalCount, minVisible);
 }
 
 // src/utils/chart-defaults.ts
@@ -342,6 +426,238 @@ function drawCrosshair(ctx, bounds, hover, cursorPrice, timeText) {
   }
   ctx.restore();
 }
+function formatVolume(volume) {
+  if (volume === void 0 || volume === null || isNaN(volume) || volume <= 0) return "-";
+  if (volume >= 1e9) return `${(volume / 1e9).toFixed(2)}B`;
+  if (volume >= 1e6) return `${(volume / 1e6).toFixed(2)}M`;
+  if (volume >= 1e3) return `${(volume / 1e3).toFixed(1)}K`;
+  return volume.toLocaleString();
+}
+function formatChange(open, close) {
+  const diff = close - open;
+  const pct = open > 0 ? diff / open * 100 : 0;
+  const isBullish = diff >= 0;
+  const sign = isBullish ? "+" : "";
+  return {
+    diff,
+    pct,
+    isBullish,
+    text: `${sign}$${formatPrice(diff)} (${sign}${pct.toFixed(2)}%)`
+  };
+}
+
+// src/engine/ruler.ts
+function drawRulerOverlay(ctx, bounds, ruler) {
+  if (!ruler.active || !ruler.startPoint || !ruler.currentPoint) return;
+  const { startPoint, currentPoint } = ruler;
+  const { padding, chartWidth, chartHeight } = bounds;
+  const rightAxisX = chartWidth - padding.right;
+  const bottomAxisY = chartHeight - padding.bottom;
+  const x1 = Math.max(padding.left, Math.min(rightAxisX, startPoint.x));
+  const y1 = Math.max(padding.top, Math.min(bottomAxisY, startPoint.y));
+  const x2 = Math.max(padding.left, Math.min(rightAxisX, currentPoint.x));
+  const y2 = Math.max(padding.top, Math.min(bottomAxisY, currentPoint.y));
+  const rectX = Math.min(x1, x2);
+  const rectY = Math.min(y1, y2);
+  const rectW = Math.max(2, Math.abs(x2 - x1));
+  const rectH = Math.max(2, Math.abs(y2 - y1));
+  const priceDiff = currentPoint.price - startPoint.price;
+  const pricePct = startPoint.price > 0 ? priceDiff / startPoint.price * 100 : 0;
+  const barsCount = Math.abs(currentPoint.index - startPoint.index);
+  const isPositive = priceDiff >= 0;
+  const accentColor = isPositive ? "#10b981" : "#f43f5e";
+  const bgFill = isPositive ? "rgba(16, 185, 129, 0.12)" : "rgba(244, 63, 94, 0.12)";
+  ctx.save();
+  ctx.fillStyle = bgFill;
+  ctx.fillRect(rectX, rectY, rectW, rectH);
+  ctx.setLineDash([4, 4]);
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(rectX, rectY, rectW, rectH);
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const sign = isPositive ? "+" : "";
+  const priceText = `${sign}$${formatPrice(priceDiff)} (${sign}${pricePct.toFixed(2)}%)`;
+  const barsText = `${barsCount} bar${barsCount !== 1 ? "s" : ""}`;
+  const fullText = `${priceText}  \u2022  ${barsText}`;
+  ctx.font = "bold 11px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  const textWidth = ctx.measureText(fullText).width;
+  const badgeW = textWidth + 16;
+  const badgeH = 22;
+  let badgeX = x2 - badgeW / 2;
+  let badgeY = y2 - badgeH - 12;
+  if (badgeX < padding.left + 4) badgeX = padding.left + 4;
+  if (badgeX + badgeW > rightAxisX - 4) badgeX = rightAxisX - badgeW - 4;
+  if (badgeY < padding.top + 4) badgeY = y2 + 12;
+  ctx.fillStyle = "rgba(2, 6, 22, 0.92)";
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 6);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = accentColor;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(fullText, badgeX + badgeW / 2, badgeY + badgeH / 2);
+  ctx.restore();
+}
+
+// src/components/VortexChartControls.tsx
+import { jsx as jsx2, jsxs as jsxs2 } from "react/jsx-runtime";
+var VortexChartControls = ({
+  onZoomIn,
+  onZoomOut,
+  onReset,
+  isZoomed,
+  zoomLevel = 1,
+  isRulerActive = false,
+  onToggleRuler,
+  className = ""
+}) => {
+  return /* @__PURE__ */ jsxs2(
+    "div",
+    {
+      className: `absolute top-2.5 right-3 z-20 flex items-center gap-1 rounded-lg border border-white/10 bg-black/75 px-1.5 py-1 backdrop-blur-md shadow-xl transition-all duration-200 opacity-60 hover:opacity-100 ${className}`,
+      role: "toolbar",
+      "aria-label": "Contr\xF4les du graphique",
+      children: [
+        isZoomed && /* @__PURE__ */ jsxs2("span", { className: "mr-1 rounded bg-sky-500/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-sky-400 border border-sky-400/30", children: [
+          zoomLevel,
+          "x"
+        ] }),
+        /* @__PURE__ */ jsx2(
+          "button",
+          {
+            type: "button",
+            onClick: (e) => {
+              e.stopPropagation();
+              onZoomIn();
+            },
+            title: "Zoom avant (+)",
+            className: "flex h-6 w-6 items-center justify-center rounded text-zinc-300 hover:bg-white/10 hover:text-white transition-colors focus:outline-none focus:ring-1 focus:ring-sky-400",
+            "aria-label": "Zoom avant",
+            children: /* @__PURE__ */ jsxs2(
+              "svg",
+              {
+                viewBox: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                strokeWidth: "2",
+                strokeLinecap: "round",
+                strokeLinejoin: "round",
+                className: "h-3.5 w-3.5",
+                children: [
+                  /* @__PURE__ */ jsx2("circle", { cx: "11", cy: "11", r: "8" }),
+                  /* @__PURE__ */ jsx2("line", { x1: "21", y1: "21", x2: "16.65", y2: "16.65" }),
+                  /* @__PURE__ */ jsx2("line", { x1: "11", y1: "8", x2: "11", y2: "14" }),
+                  /* @__PURE__ */ jsx2("line", { x1: "8", y1: "11", x2: "14", y2: "11" })
+                ]
+              }
+            )
+          }
+        ),
+        /* @__PURE__ */ jsx2(
+          "button",
+          {
+            type: "button",
+            onClick: (e) => {
+              e.stopPropagation();
+              onZoomOut();
+            },
+            title: "Zoom arri\xE8re (-)",
+            className: "flex h-6 w-6 items-center justify-center rounded text-zinc-300 hover:bg-white/10 hover:text-white transition-colors focus:outline-none focus:ring-1 focus:ring-sky-400",
+            "aria-label": "Zoom arri\xE8re",
+            children: /* @__PURE__ */ jsxs2(
+              "svg",
+              {
+                viewBox: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                strokeWidth: "2",
+                strokeLinecap: "round",
+                strokeLinejoin: "round",
+                className: "h-3.5 w-3.5",
+                children: [
+                  /* @__PURE__ */ jsx2("circle", { cx: "11", cy: "11", r: "8" }),
+                  /* @__PURE__ */ jsx2("line", { x1: "21", y1: "21", x2: "16.65", y2: "16.65" }),
+                  /* @__PURE__ */ jsx2("line", { x1: "8", y1: "11", x2: "14", y2: "11" })
+                ]
+              }
+            )
+          }
+        ),
+        onToggleRuler && /* @__PURE__ */ jsx2(
+          "button",
+          {
+            type: "button",
+            onClick: (e) => {
+              e.stopPropagation();
+              onToggleRuler();
+            },
+            title: isRulerActive ? "D\xE9sactiver l'outil de mesure" : "Outil de mesure (ou Shift+Glisser)",
+            className: `flex h-6 w-6 items-center justify-center rounded transition-colors focus:outline-none focus:ring-1 focus:ring-sky-400 ${isRulerActive ? "bg-sky-500/25 text-sky-300 border border-sky-400/40" : "text-zinc-300 hover:bg-white/10 hover:text-white"}`,
+            "aria-label": "Outil de mesure",
+            children: /* @__PURE__ */ jsxs2(
+              "svg",
+              {
+                viewBox: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                strokeWidth: "2",
+                strokeLinecap: "round",
+                strokeLinejoin: "round",
+                className: "h-3.5 w-3.5",
+                children: [
+                  /* @__PURE__ */ jsx2("path", { d: "M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z" }),
+                  /* @__PURE__ */ jsx2("path", { d: "m14.5 12.5 2-2" }),
+                  /* @__PURE__ */ jsx2("path", { d: "m11.5 9.5 2-2" }),
+                  /* @__PURE__ */ jsx2("path", { d: "m8.5 6.5 2-2" }),
+                  /* @__PURE__ */ jsx2("path", { d: "m17.5 15.5 2-2" })
+                ]
+              }
+            )
+          }
+        ),
+        isZoomed && /* @__PURE__ */ jsxs2(
+          "button",
+          {
+            type: "button",
+            onClick: (e) => {
+              e.stopPropagation();
+              onReset();
+            },
+            title: "R\xE9initialiser l'affichage (Double-clic)",
+            className: "flex h-6 items-center gap-1 rounded bg-sky-500/15 border border-sky-400/30 px-1.5 text-[10px] font-medium text-sky-300 hover:bg-sky-500/30 hover:text-white transition-colors focus:outline-none focus:ring-1 focus:ring-sky-400",
+            "aria-label": "R\xE9initialiser le zoom",
+            children: [
+              /* @__PURE__ */ jsxs2(
+                "svg",
+                {
+                  viewBox: "0 0 24 24",
+                  fill: "none",
+                  stroke: "currentColor",
+                  strokeWidth: "2",
+                  strokeLinecap: "round",
+                  strokeLinejoin: "round",
+                  className: "h-3 w-3",
+                  children: [
+                    /* @__PURE__ */ jsx2("path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" }),
+                    /* @__PURE__ */ jsx2("path", { d: "M3 3v5h5" })
+                  ]
+                }
+              ),
+              /* @__PURE__ */ jsx2("span", { children: "Fit" })
+            ]
+          }
+        )
+      ]
+    }
+  );
+};
 
 // src/engine/canvas.ts
 function setupCanvasDpi(canvas, width, height) {
@@ -358,7 +674,7 @@ function setupCanvasDpi(canvas, width, height) {
 }
 
 // src/components/VortexCandleChart.tsx
-import { jsx as jsx2, jsxs as jsxs2 } from "react/jsx-runtime";
+import { Fragment, jsx as jsx3, jsxs as jsxs3 } from "react/jsx-runtime";
 var VortexCandleChart = ({
   candles,
   priceLines = [],
@@ -370,13 +686,46 @@ var VortexCandleChart = ({
   className = "",
   isIntraday = false,
   showWatermark = true,
+  showControls = true,
   theme = {}
 }) => {
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
   const [containerWidth, setContainerWidth] = useState(600);
   const [hover, setHover] = useState(null);
+  const sortedCandles = useMemo(() => {
+    return Array.from(
+      new Map(candles.map((c) => [c.t, c])).values()
+    ).sort((a, b) => a.t - b.t);
+  }, [candles]);
+  const [viewport, setViewport] = useState(
+    () => createViewport(sortedCandles.length, 6)
+  );
+  useEffect(() => {
+    setViewport((prev) => {
+      if (prev.totalCount === sortedCandles.length) return prev;
+      return createViewport(sortedCandles.length, 6);
+    });
+  }, [sortedCandles.length]);
+  const [isRulerToolActive, setIsRulerToolActive] = useState(false);
+  const [ruler, setRuler] = useState({
+    active: false,
+    startPoint: null,
+    currentPoint: null
+  });
+  const dragRef = useRef({
+    isDragging: false,
+    hasMoved: false,
+    startX: 0,
+    initialViewport: createViewport(0)
+  });
   const mergedColors = useMemo(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
+  const visibleCandles = useMemo(() => {
+    if (sortedCandles.length === 0) return [];
+    const start = Math.max(0, Math.min(viewport.startIndex, sortedCandles.length - 1));
+    const end = Math.max(start, Math.min(viewport.endIndex, sortedCandles.length - 1));
+    return sortedCandles.slice(start, end + 1);
+  }, [sortedCandles, viewport.startIndex, viewport.endIndex]);
   const allLines = useMemo(() => {
     const list = [...priceLines];
     if (typeof swingHigh === "number" && swingHigh > 0) {
@@ -431,11 +780,6 @@ var VortexCandleChart = ({
     }
     return list;
   }, [priceLines, swingHigh, swingLow, spotPrice, atrBounds, mergedColors]);
-  const sortedCandles = useMemo(() => {
-    return Array.from(
-      new Map(candles.map((c) => [c.t, c])).values()
-    ).sort((a, b) => a.t - b.t);
-  }, [candles]);
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -452,28 +796,62 @@ var VortexCandleChart = ({
   }, []);
   const bounds = useMemo(() => {
     const prices = [];
-    sortedCandles.forEach((c) => {
+    visibleCandles.forEach((c) => {
       prices.push(c.high, c.low);
     });
     allLines.forEach((l) => {
       if (typeof l.price === "number") prices.push(l.price);
     });
     return computeBounds(prices, containerWidth, height);
-  }, [sortedCandles, allLines, containerWidth, height]);
+  }, [visibleCandles, allLines, containerWidth, height]);
   const timeLabels = useMemo(() => {
-    if (sortedCandles.length === 0) return [];
-    const count = sortedCandles.length;
+    if (visibleCandles.length === 0) return [];
+    const count = visibleCandles.length;
     const maxLabels = Math.max(3, Math.min(6, Math.floor(containerWidth / 120)));
     const step = Math.max(1, Math.floor(count / maxLabels));
     const labels = [];
     for (let i = 0; i < count; i += step) {
-      const c = sortedCandles[i];
+      const c = visibleCandles[i];
       const x = indexToX(i, count, bounds);
       const text = formatCandleTime(c.t, isIntraday);
       labels.push({ x, text });
     }
     return labels;
-  }, [sortedCandles, containerWidth, bounds, isIntraday]);
+  }, [visibleCandles, containerWidth, bounds, isIntraday]);
+  const handleZoomIn = useCallback(() => {
+    setViewport((prev) => zoomViewport(prev, 1.25, 0.5));
+  }, []);
+  const handleZoomOut = useCallback(() => {
+    setViewport((prev) => zoomViewport(prev, 0.8, 0.5));
+  }, []);
+  const handleReset = useCallback(() => {
+    setViewport(resetViewport(sortedCandles.length, 6));
+    setRuler({ active: false, startPoint: null, currentPoint: null });
+  }, [sortedCandles.length]);
+  const toggleRuler = useCallback(() => {
+    setIsRulerToolActive((prev) => {
+      if (prev) {
+        setRuler({ active: false, startPoint: null, currentPoint: null });
+      }
+      return !prev;
+    });
+  }, []);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onWheel = (e) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const anchorRatio = (mouseX - bounds.padding.left) / bounds.plotWidth;
+      const factor = e.deltaY < 0 ? 1.15 : 0.85;
+      setViewport((prev) => zoomViewport(prev, factor, anchorRatio));
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      canvas.removeEventListener("wheel", onWheel);
+    };
+  }, [bounds.padding.left, bounds.plotWidth]);
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -482,7 +860,7 @@ var VortexCandleChart = ({
     const { ctx } = setup;
     ctx.clearRect(0, 0, containerWidth, height);
     drawGridAndAxes(ctx, bounds, timeLabels);
-    drawCandlesticks(ctx, sortedCandles, bounds, {
+    drawCandlesticks(ctx, visibleCandles, bounds, {
       upColor: mergedColors.bullish,
       downColor: mergedColors.bearish
     });
@@ -490,68 +868,178 @@ var VortexCandleChart = ({
     if (showWatermark) {
       drawVortexWatermark(ctx, bounds);
     }
-    if (hover && hover.candle) {
+    if (ruler.active) {
+      drawRulerOverlay(ctx, bounds, ruler);
+    }
+    if (hover && hover.candle && !ruler.active) {
       const cursorPrice = yToPrice(hover.mouseY, bounds);
       const timeStr = formatCandleTime(hover.candle.t, isIntraday);
       drawCrosshair(ctx, bounds, hover, cursorPrice, timeStr);
     }
-  }, [containerWidth, height, bounds, sortedCandles, allLines, timeLabels, hover, showWatermark, mergedColors, isIntraday]);
-  const handleMouseMove = (e) => {
+  }, [
+    containerWidth,
+    height,
+    bounds,
+    visibleCandles,
+    allLines,
+    timeLabels,
+    hover,
+    ruler,
+    showWatermark,
+    mergedColors,
+    isIntraday
+  ]);
+  const handleMouseDown = (e) => {
     const canvas = canvasRef.current;
-    if (!canvas || sortedCandles.length === 0) return;
+    if (!canvas || visibleCandles.length === 0) return;
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
-    const idx = xToIndex(mouseX, sortedCandles.length, bounds);
-    const candle = sortedCandles[idx] || null;
-    setHover({ mouseX, mouseY, index: idx, candle });
+    const localIdx = xToIndex(mouseX, visibleCandles.length, bounds);
+    const candle = visibleCandles[localIdx] || null;
+    const price = yToPrice(mouseY, bounds);
+    if (e.shiftKey || isRulerToolActive) {
+      const point = {
+        x: mouseX,
+        y: mouseY,
+        price,
+        time: candle?.t,
+        index: viewport.startIndex + localIdx
+      };
+      setRuler({
+        active: true,
+        startPoint: point,
+        currentPoint: point
+      });
+    } else {
+      dragRef.current = {
+        isDragging: true,
+        hasMoved: false,
+        startX: mouseX,
+        initialViewport: viewport
+      };
+    }
+  };
+  const handleMouseMove = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas || visibleCandles.length === 0) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const localIdx = xToIndex(mouseX, visibleCandles.length, bounds);
+    const candle = visibleCandles[localIdx] || null;
+    const price = yToPrice(mouseY, bounds);
+    if (ruler.active && ruler.startPoint) {
+      setRuler((prev) => ({
+        ...prev,
+        currentPoint: {
+          x: mouseX,
+          y: mouseY,
+          price,
+          time: candle?.t,
+          index: viewport.startIndex + localIdx
+        }
+      }));
+      return;
+    }
+    if (dragRef.current.isDragging) {
+      const deltaX = mouseX - dragRef.current.startX;
+      if (Math.abs(deltaX) > 3) {
+        dragRef.current.hasMoved = true;
+      }
+      const barWidth = bounds.plotWidth / Math.max(1, visibleCandles.length);
+      const deltaBars = Math.round(deltaX / barWidth);
+      setViewport(panViewport(dragRef.current.initialViewport, deltaBars));
+      setHover(null);
+      return;
+    }
+    setHover({ mouseX, mouseY, index: localIdx, candle });
+  };
+  const handleMouseUp = () => {
+    if (dragRef.current.isDragging) {
+      dragRef.current.isDragging = false;
+    }
   };
   const handleMouseLeave = () => {
+    dragRef.current.isDragging = false;
     setHover(null);
   };
-  return /* @__PURE__ */ jsxs2(
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        setRuler({ active: false, startPoint: null, currentPoint: null });
+        setIsRulerToolActive(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+  const isZoomed = isViewportZoomed(viewport);
+  const zoomLevel = getZoomLevel(viewport);
+  const hoverMetrics = useMemo(() => {
+    if (!hover?.candle) return null;
+    const change = formatChange(hover.candle.open, hover.candle.close);
+    const vol = formatVolume(hover.candle.volume);
+    return { ...change, volumeStr: vol };
+  }, [hover]);
+  return /* @__PURE__ */ jsxs3(
     "div",
     {
       ref: containerRef,
-      className: `relative w-full overflow-hidden select-none ${className}`,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
       style: { height },
       children: [
-        /* @__PURE__ */ jsx2(
+        /* @__PURE__ */ jsx3(
           "canvas",
           {
             ref: canvasRef,
+            onMouseDown: handleMouseDown,
             onMouseMove: handleMouseMove,
+            onMouseUp: handleMouseUp,
             onMouseLeave: handleMouseLeave,
-            className: "cursor-crosshair block"
+            onDoubleClick: handleReset,
+            className: `block w-full h-full ${ruler.active || isRulerToolActive ? "cursor-crosshair" : dragRef.current.isDragging ? "cursor-grabbing" : isZoomed ? "cursor-grab" : "cursor-crosshair"}`
           }
         ),
-        hover && hover.candle && /* @__PURE__ */ jsxs2("div", { className: "pointer-events-none absolute top-2 left-3 z-20 flex items-center gap-2.5 rounded-lg border border-white/10 bg-black/80 px-2.5 py-1 text-[11px] backdrop-blur-md shadow-lg tabular-nums", children: [
-          /* @__PURE__ */ jsx2("span", { className: "font-semibold text-zinc-400", children: formatCandleTime(hover.candle.t, isIntraday) }),
-          /* @__PURE__ */ jsx2("div", { className: "h-3 w-px bg-white/10" }),
-          /* @__PURE__ */ jsxs2("span", { children: [
-            /* @__PURE__ */ jsx2("strong", { className: "text-zinc-500 font-normal", children: "O: " }),
-            /* @__PURE__ */ jsxs2("span", { className: "text-white", children: [
+        showControls && sortedCandles.length > 0 && /* @__PURE__ */ jsx3(
+          VortexChartControls,
+          {
+            onZoomIn: handleZoomIn,
+            onZoomOut: handleZoomOut,
+            onReset: handleReset,
+            isZoomed,
+            zoomLevel,
+            isRulerActive: isRulerToolActive || ruler.active,
+            onToggleRuler: toggleRuler
+          }
+        ),
+        hover && hover.candle && !ruler.active && /* @__PURE__ */ jsxs3("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl tabular-nums transition-all", children: [
+          /* @__PURE__ */ jsx3("span", { className: "font-semibold text-zinc-300", children: formatCandleTime(hover.candle.t, isIntraday) }),
+          /* @__PURE__ */ jsx3("div", { className: "h-3 w-px bg-white/15" }),
+          /* @__PURE__ */ jsxs3("span", { children: [
+            /* @__PURE__ */ jsx3("strong", { className: "text-zinc-500 font-normal", children: "O: " }),
+            /* @__PURE__ */ jsxs3("span", { className: "text-white", children: [
               "$",
               formatPrice(hover.candle.open)
             ] })
           ] }),
-          /* @__PURE__ */ jsxs2("span", { children: [
-            /* @__PURE__ */ jsx2("strong", { className: "text-zinc-500 font-normal", children: "H: " }),
-            /* @__PURE__ */ jsxs2("span", { className: "text-white", children: [
+          /* @__PURE__ */ jsxs3("span", { children: [
+            /* @__PURE__ */ jsx3("strong", { className: "text-zinc-500 font-normal", children: "H: " }),
+            /* @__PURE__ */ jsxs3("span", { className: "text-white", children: [
               "$",
               formatPrice(hover.candle.high)
             ] })
           ] }),
-          /* @__PURE__ */ jsxs2("span", { children: [
-            /* @__PURE__ */ jsx2("strong", { className: "text-zinc-500 font-normal", children: "L: " }),
-            /* @__PURE__ */ jsxs2("span", { className: "text-white", children: [
+          /* @__PURE__ */ jsxs3("span", { children: [
+            /* @__PURE__ */ jsx3("strong", { className: "text-zinc-500 font-normal", children: "L: " }),
+            /* @__PURE__ */ jsxs3("span", { className: "text-white", children: [
               "$",
               formatPrice(hover.candle.low)
             ] })
           ] }),
-          /* @__PURE__ */ jsxs2("span", { children: [
-            /* @__PURE__ */ jsx2("strong", { className: "text-zinc-500 font-normal", children: "C: " }),
-            /* @__PURE__ */ jsxs2(
+          /* @__PURE__ */ jsxs3("span", { children: [
+            /* @__PURE__ */ jsx3("strong", { className: "text-zinc-500 font-normal", children: "C: " }),
+            /* @__PURE__ */ jsxs3(
               "span",
               {
                 className: `font-bold ${hover.candle.close >= hover.candle.open ? "text-emerald-400" : "text-rose-400"}`,
@@ -561,6 +1049,23 @@ var VortexCandleChart = ({
                 ]
               }
             )
+          ] }),
+          hoverMetrics && /* @__PURE__ */ jsxs3(Fragment, { children: [
+            /* @__PURE__ */ jsx3("div", { className: "h-3 w-px bg-white/15" }),
+            /* @__PURE__ */ jsx3(
+              "span",
+              {
+                className: `font-medium ${hoverMetrics.isBullish ? "text-emerald-400" : "text-rose-400"}`,
+                children: hoverMetrics.text
+              }
+            ),
+            hoverMetrics.volumeStr !== "-" && /* @__PURE__ */ jsxs3(Fragment, { children: [
+              /* @__PURE__ */ jsx3("div", { className: "h-3 w-px bg-white/15" }),
+              /* @__PURE__ */ jsxs3("span", { className: "text-zinc-400", children: [
+                /* @__PURE__ */ jsx3("strong", { className: "text-zinc-500 font-normal", children: "Vol: " }),
+                /* @__PURE__ */ jsx3("span", { className: "text-zinc-200", children: hoverMetrics.volumeStr })
+              ] })
+            ] })
           ] })
         ] })
       ]
@@ -569,7 +1074,7 @@ var VortexCandleChart = ({
 };
 
 // src/components/VortexRangeChart.tsx
-import { useEffect as useEffect2, useRef as useRef2, useState as useState2, useMemo as useMemo2 } from "react";
+import { useEffect as useEffect2, useRef as useRef2, useState as useState2, useMemo as useMemo2, useCallback as useCallback2 } from "react";
 
 // src/engine/boxes.ts
 function drawSessionBox(ctx, box, bounds) {
@@ -670,7 +1175,7 @@ function drawLineSeries(ctx, points, bounds, options) {
 }
 
 // src/components/VortexRangeChart.tsx
-import { jsx as jsx3, jsxs as jsxs3 } from "react/jsx-runtime";
+import { Fragment as Fragment2, jsx as jsx4, jsxs as jsxs4 } from "react/jsx-runtime";
 var VortexRangeChart = ({
   candles,
   priorDay,
@@ -680,18 +1185,46 @@ var VortexRangeChart = ({
   height = 300,
   className = "",
   showWatermark = true,
+  showControls = true,
   theme = {}
 }) => {
   const containerRef = useRef2(null);
   const canvasRef = useRef2(null);
   const [containerWidth, setContainerWidth] = useState2(600);
   const [hover, setHover] = useState2(null);
-  const mergedColors = useMemo2(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
   const sortedCandles = useMemo2(() => {
     return Array.from(
       new Map(candles.map((c) => [c.t, c])).values()
     ).sort((a, b) => a.t - b.t);
   }, [candles]);
+  const [viewport, setViewport] = useState2(
+    () => createViewport(sortedCandles.length, 12)
+  );
+  useEffect2(() => {
+    setViewport((prev) => {
+      if (prev.totalCount === sortedCandles.length) return prev;
+      return createViewport(sortedCandles.length, 12);
+    });
+  }, [sortedCandles.length]);
+  const [isRulerToolActive, setIsRulerToolActive] = useState2(false);
+  const [ruler, setRuler] = useState2({
+    active: false,
+    startPoint: null,
+    currentPoint: null
+  });
+  const dragRef = useRef2({
+    isDragging: false,
+    hasMoved: false,
+    startX: 0,
+    initialViewport: createViewport(0)
+  });
+  const mergedColors = useMemo2(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
+  const visibleCandles = useMemo2(() => {
+    if (sortedCandles.length === 0) return [];
+    const start = Math.max(0, Math.min(viewport.startIndex, sortedCandles.length - 1));
+    const end = Math.max(start, Math.min(viewport.endIndex, sortedCandles.length - 1));
+    return sortedCandles.slice(start, end + 1);
+  }, [sortedCandles, viewport.startIndex, viewport.endIndex]);
   useEffect2(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -708,47 +1241,83 @@ var VortexRangeChart = ({
   }, []);
   const bounds = useMemo2(() => {
     const prices = [];
-    sortedCandles.forEach((c) => prices.push(c.high, c.low));
+    visibleCandles.forEach((c) => prices.push(c.high, c.low));
     if (priorDay && priorDay.high > 0) prices.push(priorDay.high, priorDay.low);
     if (premarket && premarket.high > 0) prices.push(premarket.high, premarket.low);
     vwapSeries.forEach((v) => {
       if (typeof v.vwap === "number" && v.vwap > 0) prices.push(v.vwap);
     });
     return computeBounds(prices, containerWidth, height);
-  }, [sortedCandles, priorDay, premarket, vwapSeries, containerWidth, height]);
+  }, [visibleCandles, priorDay, premarket, vwapSeries, containerWidth, height]);
   const timeLabels = useMemo2(() => {
-    if (sortedCandles.length === 0) return [];
-    const count = sortedCandles.length;
+    if (visibleCandles.length === 0) return [];
+    const count = visibleCandles.length;
     const maxLabels = Math.max(3, Math.min(6, Math.floor(containerWidth / 120)));
     const step = Math.max(1, Math.floor(count / maxLabels));
     const labels = [];
     for (let i = 0; i < count; i += step) {
-      const c = sortedCandles[i];
+      const c = visibleCandles[i];
       const x = indexToX(i, count, bounds);
       const text = formatCandleTime(c.t, true);
       labels.push({ x, text });
     }
     return labels;
-  }, [sortedCandles, containerWidth, bounds]);
+  }, [visibleCandles, containerWidth, bounds]);
   const vwapPoints = useMemo2(() => {
-    if (vwapSeries.length === 0 || sortedCandles.length === 0) return [];
+    if (vwapSeries.length === 0 || visibleCandles.length === 0) return [];
     const points = [];
-    const candleCount = sortedCandles.length;
+    const count = visibleCandles.length;
     vwapSeries.forEach((v) => {
-      let closestIdx = 0;
+      let closestIdx = -1;
       let minDiff = Infinity;
-      for (let i = 0; i < candleCount; i++) {
-        const diff = Math.abs(sortedCandles[i].t - v.t);
+      for (let i = 0; i < count; i++) {
+        const diff = Math.abs(visibleCandles[i].t - v.t);
         if (diff < minDiff) {
           minDiff = diff;
           closestIdx = i;
         }
       }
-      const x = indexToX(closestIdx, candleCount, bounds);
-      points.push({ x, price: v.vwap });
+      if (closestIdx >= 0 && minDiff < 1e3 * 60 * 30) {
+        const x = indexToX(closestIdx, count, bounds);
+        points.push({ x, price: v.vwap });
+      }
     });
     return points;
-  }, [vwapSeries, sortedCandles, bounds]);
+  }, [vwapSeries, visibleCandles, bounds]);
+  const handleZoomIn = useCallback2(() => {
+    setViewport((prev) => zoomViewport(prev, 1.25, 0.5));
+  }, []);
+  const handleZoomOut = useCallback2(() => {
+    setViewport((prev) => zoomViewport(prev, 0.8, 0.5));
+  }, []);
+  const handleReset = useCallback2(() => {
+    setViewport(resetViewport(sortedCandles.length, 12));
+    setRuler({ active: false, startPoint: null, currentPoint: null });
+  }, [sortedCandles.length]);
+  const toggleRuler = useCallback2(() => {
+    setIsRulerToolActive((prev) => {
+      if (prev) {
+        setRuler({ active: false, startPoint: null, currentPoint: null });
+      }
+      return !prev;
+    });
+  }, []);
+  useEffect2(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onWheel = (e) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const anchorRatio = (mouseX - bounds.padding.left) / bounds.plotWidth;
+      const factor = e.deltaY < 0 ? 1.15 : 0.85;
+      setViewport((prev) => zoomViewport(prev, factor, anchorRatio));
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      canvas.removeEventListener("wheel", onWheel);
+    };
+  }, [bounds.padding.left, bounds.plotWidth]);
   useEffect2(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -760,26 +1329,34 @@ var VortexRangeChart = ({
     const showBoxes = overlayMode === "all" || overlayMode === "boxes";
     const showVwap = overlayMode === "all" || overlayMode === "vwap";
     if (showBoxes && priorDay && priorDay.high > 0) {
-      drawSessionBox(ctx, {
-        high: priorDay.high,
-        low: priorDay.low,
-        mid: priorDay.mid,
-        color: "rgba(234, 179, 8, 0.85)",
-        fillColor: "rgba(234, 179, 8, 0.035)",
-        prefix: "PD"
-      }, bounds);
+      drawSessionBox(
+        ctx,
+        {
+          high: priorDay.high,
+          low: priorDay.low,
+          mid: priorDay.mid,
+          color: "rgba(234, 179, 8, 0.85)",
+          fillColor: "rgba(234, 179, 8, 0.035)",
+          prefix: "PD"
+        },
+        bounds
+      );
     }
     if (showBoxes && premarket && premarket.high > 0) {
-      drawSessionBox(ctx, {
-        high: premarket.high,
-        low: premarket.low,
-        mid: premarket.mid,
-        color: "rgba(56, 189, 248, 0.85)",
-        fillColor: "rgba(56, 189, 248, 0.035)",
-        prefix: "PM"
-      }, bounds);
+      drawSessionBox(
+        ctx,
+        {
+          high: premarket.high,
+          low: premarket.low,
+          mid: premarket.mid,
+          color: "rgba(56, 189, 248, 0.85)",
+          fillColor: "rgba(56, 189, 248, 0.035)",
+          prefix: "PM"
+        },
+        bounds
+      );
     }
-    drawCandlesticks(ctx, sortedCandles, bounds, {
+    drawCandlesticks(ctx, visibleCandles, bounds, {
       upColor: mergedColors.bullish,
       downColor: mergedColors.bearish
     });
@@ -793,7 +1370,10 @@ var VortexRangeChart = ({
     if (showWatermark) {
       drawVortexWatermark(ctx, bounds);
     }
-    if (hover && hover.candle) {
+    if (ruler.active) {
+      drawRulerOverlay(ctx, bounds, ruler);
+    }
+    if (hover && hover.candle && !ruler.active) {
       const cursorPrice = yToPrice(hover.mouseY, bounds);
       const timeStr = formatCandleTime(hover.candle.t, true);
       drawCrosshair(ctx, bounds, hover, cursorPrice, timeStr);
@@ -802,72 +1382,168 @@ var VortexRangeChart = ({
     containerWidth,
     height,
     bounds,
-    sortedCandles,
+    visibleCandles,
     priorDay,
     premarket,
     vwapPoints,
     overlayMode,
     timeLabels,
     hover,
+    ruler,
     showWatermark,
     mergedColors
   ]);
-  const handleMouseMove = (e) => {
+  const handleMouseDown = (e) => {
     const canvas = canvasRef.current;
-    if (!canvas || sortedCandles.length === 0) return;
+    if (!canvas || visibleCandles.length === 0) return;
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
-    const idx = xToIndex(mouseX, sortedCandles.length, bounds);
-    const candle = sortedCandles[idx] || null;
-    setHover({ mouseX, mouseY, index: idx, candle });
+    const localIdx = xToIndex(mouseX, visibleCandles.length, bounds);
+    const candle = visibleCandles[localIdx] || null;
+    const price = yToPrice(mouseY, bounds);
+    if (e.shiftKey || isRulerToolActive) {
+      const point = {
+        x: mouseX,
+        y: mouseY,
+        price,
+        time: candle?.t,
+        index: viewport.startIndex + localIdx
+      };
+      setRuler({
+        active: true,
+        startPoint: point,
+        currentPoint: point
+      });
+    } else {
+      dragRef.current = {
+        isDragging: true,
+        hasMoved: false,
+        startX: mouseX,
+        initialViewport: viewport
+      };
+    }
+  };
+  const handleMouseMove = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas || visibleCandles.length === 0) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const localIdx = xToIndex(mouseX, visibleCandles.length, bounds);
+    const candle = visibleCandles[localIdx] || null;
+    const price = yToPrice(mouseY, bounds);
+    if (ruler.active && ruler.startPoint) {
+      setRuler((prev) => ({
+        ...prev,
+        currentPoint: {
+          x: mouseX,
+          y: mouseY,
+          price,
+          time: candle?.t,
+          index: viewport.startIndex + localIdx
+        }
+      }));
+      return;
+    }
+    if (dragRef.current.isDragging) {
+      const deltaX = mouseX - dragRef.current.startX;
+      if (Math.abs(deltaX) > 3) {
+        dragRef.current.hasMoved = true;
+      }
+      const barWidth = bounds.plotWidth / Math.max(1, visibleCandles.length);
+      const deltaBars = Math.round(deltaX / barWidth);
+      setViewport(panViewport(dragRef.current.initialViewport, deltaBars));
+      setHover(null);
+      return;
+    }
+    setHover({ mouseX, mouseY, index: localIdx, candle });
+  };
+  const handleMouseUp = () => {
+    if (dragRef.current.isDragging) {
+      dragRef.current.isDragging = false;
+    }
   };
   const handleMouseLeave = () => {
+    dragRef.current.isDragging = false;
     setHover(null);
   };
-  return /* @__PURE__ */ jsxs3(
+  useEffect2(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        setRuler({ active: false, startPoint: null, currentPoint: null });
+        setIsRulerToolActive(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+  const isZoomed = isViewportZoomed(viewport);
+  const zoomLevel = getZoomLevel(viewport);
+  const hoverMetrics = useMemo2(() => {
+    if (!hover?.candle) return null;
+    const change = formatChange(hover.candle.open, hover.candle.close);
+    const vol = formatVolume(hover.candle.volume);
+    return { ...change, volumeStr: vol };
+  }, [hover]);
+  return /* @__PURE__ */ jsxs4(
     "div",
     {
       ref: containerRef,
-      className: `relative w-full overflow-hidden select-none ${className}`,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
       style: { height },
       children: [
-        /* @__PURE__ */ jsx3(
+        /* @__PURE__ */ jsx4(
           "canvas",
           {
             ref: canvasRef,
+            onMouseDown: handleMouseDown,
             onMouseMove: handleMouseMove,
+            onMouseUp: handleMouseUp,
             onMouseLeave: handleMouseLeave,
-            className: "cursor-crosshair block"
+            onDoubleClick: handleReset,
+            className: `block w-full h-full ${ruler.active || isRulerToolActive ? "cursor-crosshair" : dragRef.current.isDragging ? "cursor-grabbing" : isZoomed ? "cursor-grab" : "cursor-crosshair"}`
           }
         ),
-        hover && hover.candle && /* @__PURE__ */ jsxs3("div", { className: "pointer-events-none absolute top-2 left-3 z-20 flex items-center gap-2.5 rounded-lg border border-white/10 bg-black/80 px-2.5 py-1 text-[11px] backdrop-blur-md shadow-lg tabular-nums", children: [
-          /* @__PURE__ */ jsx3("span", { className: "font-semibold text-zinc-400", children: formatCandleTime(hover.candle.t, true) }),
-          /* @__PURE__ */ jsx3("div", { className: "h-3 w-px bg-white/10" }),
-          /* @__PURE__ */ jsxs3("span", { children: [
-            /* @__PURE__ */ jsx3("strong", { className: "text-zinc-500 font-normal", children: "O: " }),
-            /* @__PURE__ */ jsxs3("span", { className: "text-white", children: [
+        showControls && sortedCandles.length > 0 && /* @__PURE__ */ jsx4(
+          VortexChartControls,
+          {
+            onZoomIn: handleZoomIn,
+            onZoomOut: handleZoomOut,
+            onReset: handleReset,
+            isZoomed,
+            zoomLevel,
+            isRulerActive: isRulerToolActive || ruler.active,
+            onToggleRuler: toggleRuler
+          }
+        ),
+        hover && hover.candle && !ruler.active && /* @__PURE__ */ jsxs4("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl tabular-nums transition-all", children: [
+          /* @__PURE__ */ jsx4("span", { className: "font-semibold text-zinc-300", children: formatCandleTime(hover.candle.t, true) }),
+          /* @__PURE__ */ jsx4("div", { className: "h-3 w-px bg-white/15" }),
+          /* @__PURE__ */ jsxs4("span", { children: [
+            /* @__PURE__ */ jsx4("strong", { className: "text-zinc-500 font-normal", children: "O: " }),
+            /* @__PURE__ */ jsxs4("span", { className: "text-white", children: [
               "$",
               formatPrice(hover.candle.open)
             ] })
           ] }),
-          /* @__PURE__ */ jsxs3("span", { children: [
-            /* @__PURE__ */ jsx3("strong", { className: "text-zinc-500 font-normal", children: "H: " }),
-            /* @__PURE__ */ jsxs3("span", { className: "text-white", children: [
+          /* @__PURE__ */ jsxs4("span", { children: [
+            /* @__PURE__ */ jsx4("strong", { className: "text-zinc-500 font-normal", children: "H: " }),
+            /* @__PURE__ */ jsxs4("span", { className: "text-white", children: [
               "$",
               formatPrice(hover.candle.high)
             ] })
           ] }),
-          /* @__PURE__ */ jsxs3("span", { children: [
-            /* @__PURE__ */ jsx3("strong", { className: "text-zinc-500 font-normal", children: "L: " }),
-            /* @__PURE__ */ jsxs3("span", { className: "text-white", children: [
+          /* @__PURE__ */ jsxs4("span", { children: [
+            /* @__PURE__ */ jsx4("strong", { className: "text-zinc-500 font-normal", children: "L: " }),
+            /* @__PURE__ */ jsxs4("span", { className: "text-white", children: [
               "$",
               formatPrice(hover.candle.low)
             ] })
           ] }),
-          /* @__PURE__ */ jsxs3("span", { children: [
-            /* @__PURE__ */ jsx3("strong", { className: "text-zinc-500 font-normal", children: "C: " }),
-            /* @__PURE__ */ jsxs3(
+          /* @__PURE__ */ jsxs4("span", { children: [
+            /* @__PURE__ */ jsx4("strong", { className: "text-zinc-500 font-normal", children: "C: " }),
+            /* @__PURE__ */ jsxs4(
               "span",
               {
                 className: `font-bold ${hover.candle.close >= hover.candle.open ? "text-emerald-400" : "text-rose-400"}`,
@@ -877,6 +1553,23 @@ var VortexRangeChart = ({
                 ]
               }
             )
+          ] }),
+          hoverMetrics && /* @__PURE__ */ jsxs4(Fragment2, { children: [
+            /* @__PURE__ */ jsx4("div", { className: "h-3 w-px bg-white/15" }),
+            /* @__PURE__ */ jsx4(
+              "span",
+              {
+                className: `font-medium ${hoverMetrics.isBullish ? "text-emerald-400" : "text-rose-400"}`,
+                children: hoverMetrics.text
+              }
+            ),
+            hoverMetrics.volumeStr !== "-" && /* @__PURE__ */ jsxs4(Fragment2, { children: [
+              /* @__PURE__ */ jsx4("div", { className: "h-3 w-px bg-white/15" }),
+              /* @__PURE__ */ jsxs4("span", { className: "text-zinc-400", children: [
+                /* @__PURE__ */ jsx4("strong", { className: "text-zinc-500 font-normal", children: "Vol: " }),
+                /* @__PURE__ */ jsx4("span", { className: "text-zinc-200", children: hoverMetrics.volumeStr })
+              ] })
+            ] })
           ] })
         ] })
       ]
@@ -886,7 +1579,7 @@ var VortexRangeChart = ({
 
 // src/components/VortexConeChart.tsx
 import { useEffect as useEffect3, useRef as useRef3, useState as useState3, useMemo as useMemo3 } from "react";
-import { jsx as jsx4, jsxs as jsxs4 } from "react/jsx-runtime";
+import { Fragment as Fragment3, jsx as jsx5, jsxs as jsxs5 } from "react/jsx-runtime";
 var VortexConeChart = ({
   candles,
   historicalCandles,
@@ -907,6 +1600,11 @@ var VortexConeChart = ({
   const canvasRef = useRef3(null);
   const [containerWidth, setContainerWidth] = useState3(600);
   const [hover, setHover] = useState3(null);
+  const [ruler, setRuler] = useState3({
+    active: false,
+    startPoint: null,
+    currentPoint: null
+  });
   const mergedColors = useMemo3(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
   const resolvedCandles = useMemo3(() => {
     const raw = candles || historicalCandles || [];
@@ -1049,7 +1747,10 @@ var VortexConeChart = ({
     if (showWatermark) {
       drawVortexWatermark(ctx, bounds);
     }
-    if (hover && hover.candle) {
+    if (ruler.active) {
+      drawRulerOverlay(ctx, bounds, ruler);
+    }
+    if (hover && hover.candle && !ruler.active) {
       const cursorPrice = yToPrice(hover.mouseY, bounds);
       const timeStr = formatCandleTime(hover.candle.t, false);
       drawCrosshair(ctx, bounds, hover, cursorPrice, timeStr);
@@ -1066,9 +1767,33 @@ var VortexConeChart = ({
     priceLines,
     timeLabels,
     hover,
+    ruler,
     showWatermark,
     mergedColors
   ]);
+  const handleMouseDown = (e) => {
+    if (!e.shiftKey) return;
+    const canvas = canvasRef.current;
+    if (!canvas || resolvedCandles.length === 0) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const idx = xToIndex(mouseX, totalSlots, bounds);
+    const candle = resolvedCandles[idx] || null;
+    const price = yToPrice(mouseY, bounds);
+    const point = {
+      x: mouseX,
+      y: mouseY,
+      price,
+      time: candle?.t,
+      index: idx
+    };
+    setRuler({
+      active: true,
+      startPoint: point,
+      currentPoint: point
+    });
+  };
   const handleMouseMove = (e) => {
     const canvas = canvasRef.current;
     if (!canvas || resolvedCandles.length === 0) return;
@@ -1077,36 +1802,89 @@ var VortexConeChart = ({
     const mouseY = e.clientY - rect.top;
     const idx = xToIndex(mouseX, totalSlots, bounds);
     const candle = resolvedCandles[idx] || null;
+    const price = yToPrice(mouseY, bounds);
+    if (ruler.active && ruler.startPoint) {
+      setRuler((prev) => ({
+        ...prev,
+        currentPoint: {
+          x: mouseX,
+          y: mouseY,
+          price,
+          time: candle?.t,
+          index: idx
+        }
+      }));
+      return;
+    }
     setHover({ mouseX, mouseY, index: idx, candle });
+  };
+  const handleMouseUp = () => {
   };
   const handleMouseLeave = () => {
     setHover(null);
   };
-  return /* @__PURE__ */ jsxs4(
+  useEffect3(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        setRuler({ active: false, startPoint: null, currentPoint: null });
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+  const spotDiff = useMemo3(() => {
+    if (!hover?.candle || resolvedSpot <= 0) return null;
+    const diff = hover.candle.close - resolvedSpot;
+    const pct = diff / resolvedSpot * 100;
+    const isBullish = diff >= 0;
+    const sign = isBullish ? "+" : "";
+    return {
+      text: `${sign}$${formatPrice(diff)} (${sign}${pct.toFixed(2)}% vs Spot)`,
+      isBullish
+    };
+  }, [hover, resolvedSpot]);
+  return /* @__PURE__ */ jsxs5(
     "div",
     {
       ref: containerRef,
-      className: `relative w-full overflow-hidden select-none ${className}`,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
       style: { height },
+      onClick: () => {
+        if (ruler.active && !ruler.startPoint) {
+          setRuler({ active: false, startPoint: null, currentPoint: null });
+        }
+      },
       children: [
-        /* @__PURE__ */ jsx4(
+        /* @__PURE__ */ jsx5(
           "canvas",
           {
             ref: canvasRef,
+            onMouseDown: handleMouseDown,
             onMouseMove: handleMouseMove,
+            onMouseUp: handleMouseUp,
             onMouseLeave: handleMouseLeave,
-            className: "cursor-crosshair block"
+            className: "cursor-crosshair block w-full h-full"
           }
         ),
-        hover && hover.candle && /* @__PURE__ */ jsxs4("div", { className: "pointer-events-none absolute top-2 left-3 z-20 flex items-center gap-2.5 rounded-lg border border-white/10 bg-black/80 px-2.5 py-1 text-[11px] backdrop-blur-md shadow-lg tabular-nums", children: [
-          /* @__PURE__ */ jsx4("span", { className: "font-semibold text-zinc-400", children: formatCandleTime(hover.candle.t, false) }),
-          /* @__PURE__ */ jsx4("div", { className: "h-3 w-px bg-white/10" }),
-          /* @__PURE__ */ jsxs4("span", { children: [
-            /* @__PURE__ */ jsx4("strong", { className: "text-zinc-500 font-normal", children: "Close: " }),
-            /* @__PURE__ */ jsxs4("span", { className: "font-bold text-sky-400", children: [
+        hover && hover.candle && !ruler.active && /* @__PURE__ */ jsxs5("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-2.5 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl tabular-nums", children: [
+          /* @__PURE__ */ jsx5("span", { className: "font-semibold text-zinc-300", children: formatCandleTime(hover.candle.t, false) }),
+          /* @__PURE__ */ jsx5("div", { className: "h-3 w-px bg-white/15" }),
+          /* @__PURE__ */ jsxs5("span", { children: [
+            /* @__PURE__ */ jsx5("strong", { className: "text-zinc-500 font-normal", children: "Close: " }),
+            /* @__PURE__ */ jsxs5("span", { className: "font-bold text-sky-400", children: [
               "$",
               formatPrice(hover.candle.close)
             ] })
+          ] }),
+          spotDiff && /* @__PURE__ */ jsxs5(Fragment3, { children: [
+            /* @__PURE__ */ jsx5("div", { className: "h-3 w-px bg-white/15" }),
+            /* @__PURE__ */ jsx5(
+              "span",
+              {
+                className: `font-medium ${spotDiff.isBullish ? "text-emerald-400" : "text-rose-400"}`,
+                children: spotDiff.text
+              }
+            )
           ] })
         ] })
       ]
@@ -1116,11 +1894,24 @@ var VortexConeChart = ({
 export {
   VORTEX_THEME,
   VortexCandleChart,
+  VortexChartControls,
   VortexConeChart,
   VortexRangeChart,
   VortexWatermarkOverlay,
+  createViewport,
+  drawRulerOverlay,
   drawVortexWatermark,
   formatCandleTime,
-  formatPrice
+  formatChange,
+  formatPrice,
+  formatVolume,
+  getVisibleCount,
+  getZoomLevel,
+  isViewportZoomed,
+  panViewport,
+  resetViewport,
+  viewportIndexToX,
+  viewportXToIndex,
+  zoomViewport
 };
 //# sourceMappingURL=index.js.map

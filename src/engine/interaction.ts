@@ -87,3 +87,30 @@ export function drawCrosshair(
 
   ctx.restore();
 }
+
+/**
+ * Formats a raw volume count into readable shorthand (e.g. 1.45M, 240K).
+ */
+export function formatVolume(volume?: number): string {
+  if (volume === undefined || volume === null || isNaN(volume) || volume <= 0) return "-";
+  if (volume >= 1_000_000_000) return `${(volume / 1_000_000_000).toFixed(2)}B`;
+  if (volume >= 1_000_000) return `${(volume / 1_000_000).toFixed(2)}M`;
+  if (volume >= 1_000) return `${(volume / 1_000).toFixed(1)}K`;
+  return volume.toLocaleString();
+}
+
+/**
+ * Computes price difference and percentage with formatted sign.
+ */
+export function formatChange(open: number, close: number) {
+  const diff = close - open;
+  const pct = open > 0 ? (diff / open) * 100 : 0;
+  const isBullish = diff >= 0;
+  const sign = isBullish ? "+" : "";
+  return {
+    diff,
+    pct,
+    isBullish,
+    text: `${sign}$${formatPrice(diff)} (${sign}${pct.toFixed(2)}%)`,
+  };
+}
