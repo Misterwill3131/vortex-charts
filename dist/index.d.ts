@@ -131,9 +131,12 @@ interface ChartBounds {
     padding: ViewportPadding;
 }
 
+/**
+ * Draws the clean "VorteXbot.app" watermark on the Canvas (no third-party or placeholder icon).
+ */
 declare function drawVortexWatermark(ctx: CanvasRenderingContext2D, bounds: ChartBounds, opacity?: number): void;
 /**
- * Reusable React component for interactive VorteX watermark in the bottom-left corner
+ * Reusable React component for interactive VorteXbot.app watermark
  */
 declare const VortexWatermarkOverlay: React.FC<{
     className?: string;

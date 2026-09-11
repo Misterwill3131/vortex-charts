@@ -6,7 +6,7 @@ import { drawGridAndAxes } from "../engine/grid";
 import { drawCandlesticks } from "../engine/candles";
 import { drawSessionBox } from "../engine/boxes";
 import { drawLineSeries, type DataPoint } from "../engine/lines";
-import { drawVortexWatermark, VortexWatermarkOverlay } from "../engine/watermark";
+import { drawVortexWatermark } from "../engine/watermark";
 import { drawCrosshair, type HoverState } from "../engine/interaction";
 import { setupCanvasDpi } from "../engine/canvas";
 import { formatCandleTime, formatPrice } from "../utils/chart-defaults";
@@ -234,9 +234,6 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
         onMouseLeave={handleMouseLeave}
         className="cursor-crosshair block"
       />
-
-      {/* Official VorteX Branding Overlay */}
-      {showWatermark && <VortexWatermarkOverlay />}
 
       {/* Floating Glassmorphism Tooltip */}
       {hover && hover.candle && (

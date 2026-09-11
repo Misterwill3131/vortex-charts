@@ -254,59 +254,32 @@ function drawPriceLines(ctx, lines, bounds) {
 
 // src/engine/watermark.tsx
 import { jsx, jsxs } from "react/jsx-runtime";
-function drawVortexWatermark(ctx, bounds, opacity = 0.45) {
+function drawVortexWatermark(ctx, bounds, opacity = 0.5) {
   const { chartHeight, padding } = bounds;
-  const x = padding.left + 8;
-  const y = chartHeight - padding.bottom - 16;
+  const x = padding.left + 6;
+  const y = chartHeight - padding.bottom - 14;
   ctx.save();
   ctx.globalAlpha = opacity;
-  ctx.strokeStyle = "#38bdf8";
-  ctx.fillStyle = "#38bdf8";
-  ctx.lineWidth = 2;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.beginPath();
-  ctx.moveTo(x, y - 8);
-  ctx.lineTo(x + 5, y + 2);
-  ctx.lineTo(x + 10, y - 8);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(x + 5, y - 4, 1.5, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
   ctx.font = "bold 11px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   ctx.fillStyle = "#ffffff";
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-  ctx.fillText("VorteX", x + 15, y - 3);
-  ctx.font = "8px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  ctx.fillText("VorteX", x, y);
+  const vortexWidth = ctx.measureText("VorteX").width;
+  ctx.font = "600 11px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   ctx.fillStyle = "#38bdf8";
-  ctx.fillText("CHARTS", x + 56, y - 3);
+  ctx.fillText("bot.app", x + vortexWidth, y);
   ctx.restore();
 }
 var VortexWatermarkOverlay = ({ className = "" }) => {
   return /* @__PURE__ */ jsxs(
     "div",
     {
-      className: `pointer-events-none absolute bottom-7 left-4 z-10 flex items-center gap-1.5 opacity-40 transition-opacity duration-200 hover:opacity-90 select-none ${className}`,
-      "aria-label": "VorteX Charts",
+      className: `pointer-events-none absolute bottom-6 left-4 z-10 flex items-baseline font-sans text-xs opacity-50 transition-opacity duration-200 hover:opacity-90 select-none ${className}`,
+      "aria-label": "VorteXbot.app",
       children: [
-        /* @__PURE__ */ jsx("div", { className: "flex h-5 w-5 items-center justify-center rounded-md bg-sky-500/20 border border-sky-400/30 text-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.3)]", children: /* @__PURE__ */ jsx(
-          "svg",
-          {
-            viewBox: "0 0 24 24",
-            fill: "none",
-            stroke: "currentColor",
-            strokeWidth: "2.5",
-            strokeLinecap: "round",
-            strokeLinejoin: "round",
-            className: "h-3 w-3",
-            children: /* @__PURE__ */ jsx("path", { d: "m13 2-2 10 7-2-9 12 2-10-7 2z" })
-          }
-        ) }),
-        /* @__PURE__ */ jsxs("div", { className: "flex items-baseline gap-1", children: [
-          /* @__PURE__ */ jsx("span", { className: "text-xs font-bold tracking-tight text-white/80", children: "VorteX" }),
-          /* @__PURE__ */ jsx("span", { className: "text-[9px] font-semibold uppercase tracking-wider text-sky-400", children: "Charts" })
-        ] })
+        /* @__PURE__ */ jsx("span", { className: "font-bold tracking-tight text-white", children: "VorteX" }),
+        /* @__PURE__ */ jsx("span", { className: "font-semibold text-sky-400", children: "bot.app" })
       ]
     }
   );
@@ -552,7 +525,6 @@ var VortexCandleChart = ({
             className: "cursor-crosshair block"
           }
         ),
-        showWatermark && /* @__PURE__ */ jsx2(VortexWatermarkOverlay, {}),
         hover && hover.candle && /* @__PURE__ */ jsxs2("div", { className: "pointer-events-none absolute top-2 left-3 z-20 flex items-center gap-2.5 rounded-lg border border-white/10 bg-black/80 px-2.5 py-1 text-[11px] backdrop-blur-md shadow-lg tabular-nums", children: [
           /* @__PURE__ */ jsx2("span", { className: "font-semibold text-zinc-400", children: formatCandleTime(hover.candle.t, isIntraday) }),
           /* @__PURE__ */ jsx2("div", { className: "h-3 w-px bg-white/10" }),
@@ -869,7 +841,6 @@ var VortexRangeChart = ({
             className: "cursor-crosshair block"
           }
         ),
-        showWatermark && /* @__PURE__ */ jsx3(VortexWatermarkOverlay, {}),
         hover && hover.candle && /* @__PURE__ */ jsxs3("div", { className: "pointer-events-none absolute top-2 left-3 z-20 flex items-center gap-2.5 rounded-lg border border-white/10 bg-black/80 px-2.5 py-1 text-[11px] backdrop-blur-md shadow-lg tabular-nums", children: [
           /* @__PURE__ */ jsx3("span", { className: "font-semibold text-zinc-400", children: formatCandleTime(hover.candle.t, true) }),
           /* @__PURE__ */ jsx3("div", { className: "h-3 w-px bg-white/10" }),
@@ -1127,7 +1098,6 @@ var VortexConeChart = ({
             className: "cursor-crosshair block"
           }
         ),
-        showWatermark && /* @__PURE__ */ jsx4(VortexWatermarkOverlay, {}),
         hover && hover.candle && /* @__PURE__ */ jsxs4("div", { className: "pointer-events-none absolute top-2 left-3 z-20 flex items-center gap-2.5 rounded-lg border border-white/10 bg-black/80 px-2.5 py-1 text-[11px] backdrop-blur-md shadow-lg tabular-nums", children: [
           /* @__PURE__ */ jsx4("span", { className: "font-semibold text-zinc-400", children: formatCandleTime(hover.candle.t, false) }),
           /* @__PURE__ */ jsx4("div", { className: "h-3 w-px bg-white/10" }),

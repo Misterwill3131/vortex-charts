@@ -5,7 +5,7 @@ import { computeBounds, indexToX, xToIndex, yToPrice } from "../engine/coordinat
 import { drawGridAndAxes } from "../engine/grid";
 import { drawLineSeries, type DataPoint } from "../engine/lines";
 import { drawPriceLines } from "../engine/price-lines";
-import { drawVortexWatermark, VortexWatermarkOverlay } from "../engine/watermark";
+import { drawVortexWatermark } from "../engine/watermark";
 import { drawCrosshair, type HoverState } from "../engine/interaction";
 import { setupCanvasDpi } from "../engine/canvas";
 import { formatCandleTime, formatPrice } from "../utils/chart-defaults";
@@ -286,8 +286,6 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
         className="cursor-crosshair block"
       />
 
-      {/* Official VorteX Branding Overlay */}
-      {showWatermark && <VortexWatermarkOverlay />}
 
       {/* Floating Glassmorphism Tooltip */}
       {hover && hover.candle && (

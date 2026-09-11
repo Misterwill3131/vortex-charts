@@ -5,7 +5,7 @@ import { computeBounds, indexToX, xToIndex, yToPrice } from "../engine/coordinat
 import { drawGridAndAxes } from "../engine/grid";
 import { drawCandlesticks } from "../engine/candles";
 import { drawPriceLines } from "../engine/price-lines";
-import { drawVortexWatermark, VortexWatermarkOverlay } from "../engine/watermark";
+import { drawVortexWatermark } from "../engine/watermark";
 import { drawCrosshair, type HoverState } from "../engine/interaction";
 import { setupCanvasDpi } from "../engine/canvas";
 import { formatCandleTime, formatPrice } from "../utils/chart-defaults";
@@ -228,9 +228,6 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
         onMouseLeave={handleMouseLeave}
         className="cursor-crosshair block"
       />
-
-      {/* Official VorteX Branding Overlay */}
-      {showWatermark && <VortexWatermarkOverlay />}
 
       {/* Floating Glassmorphism Tooltip */}
       {hover && hover.candle && (
