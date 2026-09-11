@@ -25,14 +25,15 @@ __export(index_exports, {
   VortexCandleChart: () => VortexCandleChart,
   VortexConeChart: () => VortexConeChart,
   VortexRangeChart: () => VortexRangeChart,
+  VortexWatermarkOverlay: () => VortexWatermarkOverlay,
+  drawVortexWatermark: () => drawVortexWatermark,
   formatCandleTime: () => formatCandleTime,
-  toLineStyle: () => toLineStyle
+  formatPrice: () => formatPrice
 });
 module.exports = __toCommonJS(index_exports);
 
 // src/components/VortexCandleChart.tsx
 var import_react = require("react");
-var import_lightweight_charts2 = require("lightweight-charts");
 
 // src/theme/tokens.ts
 var VORTEX_THEME = {
@@ -62,28 +63,361 @@ var VORTEX_THEME = {
   }
 };
 
-// src/utils/chart-defaults.ts
-var import_lightweight_charts = require("lightweight-charts");
-function toLineStyle(style) {
-  switch (style) {
-    case "dashed":
-      return import_lightweight_charts.LineStyle.Dashed;
-    case "dotted":
-      return import_lightweight_charts.LineStyle.Dotted;
-    case "solid":
-    default:
-      return import_lightweight_charts.LineStyle.Solid;
+// src/engine/coordinates.ts
+var DEFAULT_PADDING = {
+  top: 20,
+  bottom: 26,
+  left: 12,
+  right: 64
+};
+function computeBounds(prices, width, height, padding = DEFAULT_PADDING) {
+  const validPrices = prices.filter((p) => typeof p === "number" && !isNaN(p) && p > 0);
+  let min = validPrices.length > 0 ? Math.min(...validPrices) : 100;
+  let max = validPrices.length > 0 ? Math.max(...validPrices) : 105;
+  if (min === max) {
+    min *= 0.98;
+    max *= 1.02;
   }
+  const span = max - min;
+  const pad = Math.max(span * 0.08, 0.5);
+  const minPrice = min - pad;
+  const maxPrice = max + pad;
+  const priceRange = maxPrice - minPrice;
+  const plotWidth = Math.max(width - padding.left - padding.right, 10);
+  const plotHeight = Math.max(height - padding.top - padding.bottom, 10);
+  return {
+    minPrice,
+    maxPrice,
+    priceRange,
+    chartWidth: width,
+    chartHeight: height,
+    plotWidth,
+    plotHeight,
+    padding
+  };
 }
+function priceToY(price, bounds) {
+  const { minPrice, priceRange, plotHeight, padding } = bounds;
+  if (priceRange <= 0) return padding.top + plotHeight / 2;
+  const ratio = (price - minPrice) / priceRange;
+  return padding.top + plotHeight * (1 - ratio);
+}
+function yToPrice(y, bounds) {
+  const { minPrice, priceRange, plotHeight, padding } = bounds;
+  const ratio = 1 - (y - padding.top) / plotHeight;
+  return minPrice + ratio * priceRange;
+}
+function indexToX(index, totalCount, bounds) {
+  const { plotWidth, padding } = bounds;
+  if (totalCount <= 1) return padding.left + plotWidth / 2;
+  const step = plotWidth / totalCount;
+  return padding.left + index * step + step / 2;
+}
+function xToIndex(x, totalCount, bounds) {
+  const { plotWidth, padding } = bounds;
+  if (totalCount <= 0) return -1;
+  const step = plotWidth / totalCount;
+  const raw = Math.floor((x - padding.left) / step);
+  return Math.max(0, Math.min(totalCount - 1, raw));
+}
+
+// src/utils/chart-defaults.ts
 function formatCandleTime(timestampMs, isIntraday = false) {
+  const d = new Date(timestampMs);
   if (isIntraday) {
-    return Math.floor(timestampMs / 1e3);
+    return d.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    });
   }
-  return new Date(timestampMs).toISOString().slice(0, 10);
+  return d.toISOString().slice(0, 10);
+}
+function formatPrice(price) {
+  if (isNaN(price)) return "\u2014";
+  return price.toFixed(2);
+}
+
+// src/engine/grid.ts
+function drawGridAndAxes(ctx, bounds, timeLabels, tickCount = 5) {
+  const { chartWidth, chartHeight, plotWidth, padding, minPrice, maxPrice, priceRange } = bounds;
+  ctx.save();
+  const rightAxisX = chartWidth - padding.right;
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(rightAxisX + 0.5, padding.top);
+  ctx.lineTo(rightAxisX + 0.5, chartHeight - padding.bottom);
+  ctx.stroke();
+  const bottomAxisY = chartHeight - padding.bottom;
+  ctx.beginPath();
+  ctx.moveTo(padding.left, bottomAxisY + 0.5);
+  ctx.lineTo(chartWidth, bottomAxisY + 0.5);
+  ctx.stroke();
+  ctx.setLineDash([3, 4]);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
+  ctx.fillStyle = "#71717a";
+  ctx.font = "10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  const step = priceRange / (tickCount + 1);
+  for (let i = 1; i <= tickCount; i++) {
+    const price = minPrice + i * step;
+    const y = Math.round(priceToY(price, bounds));
+    ctx.beginPath();
+    ctx.moveTo(padding.left, y + 0.5);
+    ctx.lineTo(rightAxisX, y + 0.5);
+    ctx.stroke();
+    ctx.fillText(formatPrice(price), rightAxisX + 8, y);
+  }
+  ctx.setLineDash([]);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  for (const item of timeLabels) {
+    if (item.x >= padding.left && item.x <= rightAxisX) {
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+      ctx.beginPath();
+      ctx.moveTo(item.x + 0.5, bottomAxisY);
+      ctx.lineTo(item.x + 0.5, bottomAxisY + 4);
+      ctx.stroke();
+      ctx.fillText(item.text, item.x, bottomAxisY + 7);
+    }
+  }
+  ctx.restore();
+}
+
+// src/engine/candles.ts
+var DEFAULT_CANDLE_STYLE = {
+  upColor: "#10b981",
+  // Bullish Emerald
+  downColor: "#f43f5e"
+  // Bearish Rose
+};
+function drawCandlesticks(ctx, candles, bounds, style = DEFAULT_CANDLE_STYLE) {
+  if (candles.length === 0) return;
+  const count = candles.length;
+  const candleSlotWidth = bounds.plotWidth / count;
+  const candleBodyWidth = Math.max(2, Math.min(22, Math.floor(candleSlotWidth * 0.72)));
+  ctx.save();
+  candles.forEach((c, idx) => {
+    const x = Math.round(indexToX(idx, count, bounds));
+    const isUp = c.close >= c.open;
+    const color = isUp ? style.upColor : style.downColor;
+    const yHigh = Math.round(priceToY(c.high, bounds));
+    const yLow = Math.round(priceToY(c.low, bounds));
+    const yOpen = Math.round(priceToY(c.open, bounds));
+    const yClose = Math.round(priceToY(c.close, bounds));
+    const yBodyTop = Math.min(yOpen, yClose);
+    const bodyHeight = Math.max(1.5, Math.abs(yOpen - yClose));
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + 0.5, yHigh);
+    ctx.lineTo(x + 0.5, yLow);
+    ctx.stroke();
+    ctx.fillStyle = color;
+    const xBodyLeft = Math.round(x - candleBodyWidth / 2);
+    ctx.fillRect(xBodyLeft, yBodyTop, candleBodyWidth, bodyHeight);
+  });
+  ctx.restore();
+}
+
+// src/engine/price-lines.ts
+function drawPriceLines(ctx, lines, bounds) {
+  const { chartWidth, padding, minPrice, maxPrice } = bounds;
+  const rightAxisX = chartWidth - padding.right;
+  ctx.save();
+  lines.forEach((line) => {
+    if (typeof line.price !== "number" || isNaN(line.price)) return;
+    if (line.price < minPrice || line.price > maxPrice) return;
+    const y = Math.round(priceToY(line.price, bounds));
+    const lineWidth = line.lineWidth ?? 1;
+    if (line.lineStyle === "dashed") {
+      ctx.setLineDash([5, 4]);
+    } else if (line.lineStyle === "dotted") {
+      ctx.setLineDash([2, 3]);
+    } else {
+      ctx.setLineDash([]);
+    }
+    ctx.strokeStyle = line.color;
+    ctx.lineWidth = lineWidth;
+    ctx.beginPath();
+    ctx.moveTo(padding.left, y + 0.5);
+    ctx.lineTo(rightAxisX, y + 0.5);
+    ctx.stroke();
+    if (line.title) {
+      ctx.save();
+      ctx.setLineDash([]);
+      ctx.font = "10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+      const textWidth = ctx.measureText(line.title).width;
+      const tagX = rightAxisX - textWidth - 10;
+      const tagY = y - 7;
+      ctx.fillStyle = "rgba(2, 6, 22, 0.75)";
+      ctx.fillRect(tagX - 4, tagY - 8, textWidth + 8, 14);
+      ctx.fillStyle = line.color;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(line.title, tagX, tagY - 1);
+      ctx.restore();
+    }
+    if (line.axisLabelVisible !== false) {
+      ctx.save();
+      ctx.setLineDash([]);
+      const labelText = formatPrice(line.price);
+      ctx.font = "bold 10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+      const labelWidth = ctx.measureText(labelText).width;
+      const pillWidth = labelWidth + 10;
+      const pillHeight = 16;
+      const pillX = rightAxisX + 4;
+      const pillY = Math.round(y - pillHeight / 2);
+      ctx.fillStyle = line.color;
+      ctx.beginPath();
+      ctx.roundRect(pillX, pillY, pillWidth, pillHeight, 3);
+      ctx.fill();
+      ctx.fillStyle = "#020616";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(labelText, pillX + pillWidth / 2, pillY + pillHeight / 2);
+      ctx.restore();
+    }
+  });
+  ctx.restore();
+}
+
+// src/engine/watermark.tsx
+var import_jsx_runtime = require("react/jsx-runtime");
+function drawVortexWatermark(ctx, bounds, opacity = 0.45) {
+  const { chartHeight, padding } = bounds;
+  const x = padding.left + 8;
+  const y = chartHeight - padding.bottom - 16;
+  ctx.save();
+  ctx.globalAlpha = opacity;
+  ctx.strokeStyle = "#38bdf8";
+  ctx.fillStyle = "#38bdf8";
+  ctx.lineWidth = 2;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(x, y - 8);
+  ctx.lineTo(x + 5, y + 2);
+  ctx.lineTo(x + 10, y - 8);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x + 5, y - 4, 1.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.font = "bold 11px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText("VorteX", x + 15, y - 3);
+  ctx.font = "8px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  ctx.fillStyle = "#38bdf8";
+  ctx.fillText("CHARTS", x + 56, y - 3);
+  ctx.restore();
+}
+var VortexWatermarkOverlay = ({ className = "" }) => {
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+    "div",
+    {
+      className: `pointer-events-none absolute bottom-7 left-4 z-10 flex items-center gap-1.5 opacity-40 transition-opacity duration-200 hover:opacity-90 select-none ${className}`,
+      "aria-label": "VorteX Charts",
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex h-5 w-5 items-center justify-center rounded-md bg-sky-500/20 border border-sky-400/30 text-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.3)]", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "svg",
+          {
+            viewBox: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            strokeWidth: "2.5",
+            strokeLinecap: "round",
+            strokeLinejoin: "round",
+            className: "h-3 w-3",
+            children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m13 2-2 10 7-2-9 12 2-10-7 2z" })
+          }
+        ) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-baseline gap-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-xs font-bold tracking-tight text-white/80", children: "VorteX" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-[9px] font-semibold uppercase tracking-wider text-sky-400", children: "Charts" })
+        ] })
+      ]
+    }
+  );
+};
+
+// src/engine/interaction.ts
+function drawCrosshair(ctx, bounds, hover, cursorPrice, timeText) {
+  const { chartWidth, chartHeight, padding } = bounds;
+  const rightAxisX = chartWidth - padding.right;
+  const bottomAxisY = chartHeight - padding.bottom;
+  const { mouseX, mouseY } = hover;
+  if (mouseX < padding.left || mouseX > rightAxisX || mouseY < padding.top || mouseY > bottomAxisY) {
+    return;
+  }
+  ctx.save();
+  ctx.setLineDash([3, 3]);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(mouseX + 0.5, padding.top);
+  ctx.lineTo(mouseX + 0.5, bottomAxisY);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(padding.left, mouseY + 0.5);
+  ctx.lineTo(rightAxisX, mouseY + 0.5);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.font = "bold 10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  const priceText = `$${formatPrice(cursorPrice)}`;
+  const textW = ctx.measureText(priceText).width;
+  const pillW = textW + 10;
+  const pillH = 16;
+  const pillX = rightAxisX + 4;
+  const pillY = Math.round(mouseY - pillH / 2);
+  ctx.fillStyle = "#38bdf8";
+  ctx.beginPath();
+  ctx.roundRect(pillX, pillY, pillW, pillH, 3);
+  ctx.fill();
+  ctx.fillStyle = "#020616";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(priceText, pillX + pillW / 2, pillY + pillH / 2);
+  if (timeText) {
+    ctx.font = "10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    const timeW = ctx.measureText(timeText).width + 12;
+    const timeH = 16;
+    const timeX = Math.round(mouseX - timeW / 2);
+    const timeY = bottomAxisY + 4;
+    ctx.fillStyle = "#1e293b";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(timeX, timeY, timeW, timeH, 3);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#f1f5f9";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(timeText, timeX + timeW / 2, timeY + timeH / 2);
+  }
+  ctx.restore();
+}
+
+// src/engine/canvas.ts
+function setupCanvasDpi(canvas, width, height) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+  ctx.resetTransform();
+  ctx.scale(dpr, dpr);
+  return { ctx, dpr };
 }
 
 // src/components/VortexCandleChart.tsx
-var import_jsx_runtime = require("react/jsx-runtime");
+var import_jsx_runtime2 = require("react/jsx-runtime");
 var VortexCandleChart = ({
   candles,
   priceLines = [],
@@ -93,148 +427,310 @@ var VortexCandleChart = ({
   atrBounds,
   height = 300,
   className = "",
-  timeVisible = false,
   isIntraday = false,
+  showWatermark = true,
   theme = {}
 }) => {
   const containerRef = (0, import_react.useRef)(null);
-  const chartRef = (0, import_react.useRef)(null);
-  const seriesRef = (0, import_react.useRef)(null);
-  const mergedColors = { ...VORTEX_THEME.colors, ...theme.colors || {} };
-  (0, import_react.useEffect)(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    el.replaceChildren();
-    const chart = (0, import_lightweight_charts2.createChart)(el, {
-      layout: {
-        background: { type: import_lightweight_charts2.ColorType.Solid, color: "transparent" },
-        textColor: mergedColors.text,
-        fontSize: VORTEX_THEME.typography.fontSize,
-        fontFamily: VORTEX_THEME.typography.fontFamily
-      },
-      grid: {
-        vertLines: { color: mergedColors.grid, style: import_lightweight_charts2.LineStyle.Dotted },
-        horzLines: { color: mergedColors.grid, style: import_lightweight_charts2.LineStyle.Dotted }
-      },
-      rightPriceScale: {
-        visible: true,
-        borderColor: mergedColors.border
-      },
-      leftPriceScale: {
-        visible: false
-      },
-      timeScale: {
-        borderColor: mergedColors.border,
-        timeVisible
-      },
-      width: el.clientWidth,
-      height
-    });
-    chartRef.current = chart;
-    const candleSeries = chart.addSeries(import_lightweight_charts2.CandlestickSeries, {
-      priceScaleId: "right",
-      upColor: mergedColors.bullish,
-      downColor: mergedColors.bearish,
-      borderVisible: false,
-      wickUpColor: mergedColors.bullish,
-      wickDownColor: mergedColors.bearish
-    });
-    seriesRef.current = candleSeries;
-    const formattedData = candles.map((c) => ({
-      time: formatCandleTime(c.t, isIntraday),
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close
-    }));
-    const uniqueByTime = Array.from(
-      new Map(formattedData.map((d) => [d.time, d])).values()
-    ).sort((a, b) => a.time < b.time ? -1 : 1);
-    candleSeries.setData(uniqueByTime);
+  const canvasRef = (0, import_react.useRef)(null);
+  const [containerWidth, setContainerWidth] = (0, import_react.useState)(600);
+  const [hover, setHover] = (0, import_react.useState)(null);
+  const mergedColors = (0, import_react.useMemo)(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
+  const allLines = (0, import_react.useMemo)(() => {
+    const list = [...priceLines];
     if (typeof swingHigh === "number" && swingHigh > 0) {
-      candleSeries.createPriceLine({
+      list.push({
         price: swingHigh,
         color: mergedColors.bearish,
         lineWidth: 1,
-        lineStyle: import_lightweight_charts2.LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: `20D High $${swingHigh.toFixed(2)}`
+        lineStyle: "dashed",
+        title: `20D High $${formatPrice(swingHigh)}`,
+        axisLabelVisible: true
       });
     }
     if (typeof swingLow === "number" && swingLow > 0) {
-      candleSeries.createPriceLine({
+      list.push({
         price: swingLow,
         color: mergedColors.bullish,
         lineWidth: 1,
-        lineStyle: import_lightweight_charts2.LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: `20D Low $${swingLow.toFixed(2)}`
+        lineStyle: "dashed",
+        title: `20D Low $${formatPrice(swingLow)}`,
+        axisLabelVisible: true
       });
     }
     if (typeof spotPrice === "number" && spotPrice > 0) {
-      candleSeries.createPriceLine({
+      list.push({
         price: spotPrice,
         color: mergedColors.spot,
         lineWidth: 2,
-        lineStyle: import_lightweight_charts2.LineStyle.Solid,
-        axisLabelVisible: true,
-        title: `Spot $${spotPrice.toFixed(2)}`
+        lineStyle: "solid",
+        title: `Spot $${formatPrice(spotPrice)}`,
+        axisLabelVisible: true
       });
     }
     if (atrBounds?.upper && atrBounds.upper > 0) {
-      candleSeries.createPriceLine({
+      list.push({
         price: atrBounds.upper,
-        color: "rgba(234, 179, 8, 0.7)",
+        color: "rgba(234, 179, 8, 0.75)",
         lineWidth: 1,
-        lineStyle: import_lightweight_charts2.LineStyle.Dotted,
-        axisLabelVisible: false,
-        title: "ATR Upper"
+        lineStyle: "dotted",
+        title: "ATR Upper",
+        axisLabelVisible: false
       });
     }
     if (atrBounds?.lower && atrBounds.lower > 0) {
-      candleSeries.createPriceLine({
+      list.push({
         price: atrBounds.lower,
-        color: "rgba(234, 179, 8, 0.7)",
+        color: "rgba(234, 179, 8, 0.75)",
         lineWidth: 1,
-        lineStyle: import_lightweight_charts2.LineStyle.Dotted,
-        axisLabelVisible: false,
-        title: "ATR Lower"
+        lineStyle: "dotted",
+        title: "ATR Lower",
+        axisLabelVisible: false
       });
     }
-    priceLines.forEach((line) => {
-      candleSeries.createPriceLine({
-        price: line.price,
-        color: line.color,
-        lineWidth: line.lineWidth ?? 1,
-        lineStyle: toLineStyle(line.lineStyle),
-        axisLabelVisible: line.axisLabelVisible !== false,
-        title: line.title
-      });
+    return list;
+  }, [priceLines, swingHigh, swingLow, spotPrice, atrBounds, mergedColors]);
+  const sortedCandles = (0, import_react.useMemo)(() => {
+    return Array.from(
+      new Map(candles.map((c) => [c.t, c])).values()
+    ).sort((a, b) => a.t - b.t);
+  }, [candles]);
+  (0, import_react.useEffect)(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    setContainerWidth(el.clientWidth || 600);
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.width > 0) {
+          setContainerWidth(entry.contentRect.width);
+        }
+      }
     });
-    chart.timeScale().fitContent();
-    const handleResize = () => {
-      if (el) chart.applyOptions({ width: el.clientWidth });
-    };
-    window.addEventListener("resize", handleResize);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      chart.remove();
-    };
-  }, [candles, priceLines, swingHigh, swingLow, spotPrice, atrBounds, height, timeVisible, isIntraday, mergedColors]);
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const bounds = (0, import_react.useMemo)(() => {
+    const prices = [];
+    sortedCandles.forEach((c) => {
+      prices.push(c.high, c.low);
+    });
+    allLines.forEach((l) => {
+      if (typeof l.price === "number") prices.push(l.price);
+    });
+    return computeBounds(prices, containerWidth, height);
+  }, [sortedCandles, allLines, containerWidth, height]);
+  const timeLabels = (0, import_react.useMemo)(() => {
+    if (sortedCandles.length === 0) return [];
+    const count = sortedCandles.length;
+    const maxLabels = Math.max(3, Math.min(6, Math.floor(containerWidth / 120)));
+    const step = Math.max(1, Math.floor(count / maxLabels));
+    const labels = [];
+    for (let i = 0; i < count; i += step) {
+      const c = sortedCandles[i];
+      const x = indexToX(i, count, bounds);
+      const text = formatCandleTime(c.t, isIntraday);
+      labels.push({ x, text });
+    }
+    return labels;
+  }, [sortedCandles, containerWidth, bounds, isIntraday]);
+  (0, import_react.useEffect)(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawGridAndAxes(ctx, bounds, timeLabels);
+    drawCandlesticks(ctx, sortedCandles, bounds, {
+      upColor: mergedColors.bullish,
+      downColor: mergedColors.bearish
+    });
+    drawPriceLines(ctx, allLines, bounds);
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+    if (hover && hover.candle) {
+      const cursorPrice = yToPrice(hover.mouseY, bounds);
+      const timeStr = formatCandleTime(hover.candle.t, isIntraday);
+      drawCrosshair(ctx, bounds, hover, cursorPrice, timeStr);
+    }
+  }, [containerWidth, height, bounds, sortedCandles, allLines, timeLabels, hover, showWatermark, mergedColors, isIntraday]);
+  const handleMouseMove = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas || sortedCandles.length === 0) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const idx = xToIndex(mouseX, sortedCandles.length, bounds);
+    const candle = sortedCandles[idx] || null;
+    setHover({ mouseX, mouseY, index: idx, candle });
+  };
+  const handleMouseLeave = () => {
+    setHover(null);
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
     "div",
     {
       ref: containerRef,
-      className: `w-full overflow-hidden ${className}`,
-      style: { height }
+      className: `relative w-full overflow-hidden select-none ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+          "canvas",
+          {
+            ref: canvasRef,
+            onMouseMove: handleMouseMove,
+            onMouseLeave: handleMouseLeave,
+            className: "cursor-crosshair block"
+          }
+        ),
+        showWatermark && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(VortexWatermarkOverlay, {}),
+        hover && hover.candle && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "pointer-events-none absolute top-2 left-3 z-20 flex items-center gap-2.5 rounded-lg border border-white/10 bg-black/80 px-2.5 py-1 text-[11px] backdrop-blur-md shadow-lg tabular-nums", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "font-semibold text-zinc-400", children: formatCandleTime(hover.candle.t, isIntraday) }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "h-3 w-px bg-white/10" }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { className: "text-zinc-500 font-normal", children: "O: " }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "text-white", children: [
+              "$",
+              formatPrice(hover.candle.open)
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { className: "text-zinc-500 font-normal", children: "H: " }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "text-white", children: [
+              "$",
+              formatPrice(hover.candle.high)
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { className: "text-zinc-500 font-normal", children: "L: " }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "text-white", children: [
+              "$",
+              formatPrice(hover.candle.low)
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { className: "text-zinc-500 font-normal", children: "C: " }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+              "span",
+              {
+                className: `font-bold ${hover.candle.close >= hover.candle.open ? "text-emerald-400" : "text-rose-400"}`,
+                children: [
+                  "$",
+                  formatPrice(hover.candle.close)
+                ]
+              }
+            )
+          ] })
+        ] })
+      ]
     }
   );
 };
 
 // src/components/VortexRangeChart.tsx
 var import_react2 = require("react");
-var import_lightweight_charts3 = require("lightweight-charts");
-var import_jsx_runtime2 = require("react/jsx-runtime");
+
+// src/engine/boxes.ts
+function drawSessionBox(ctx, box, bounds) {
+  if (box.high <= 0 || box.low <= 0) return;
+  const { chartWidth, padding } = bounds;
+  const rightAxisX = chartWidth - padding.right;
+  const yHigh = Math.round(priceToY(box.high, bounds));
+  const yLow = Math.round(priceToY(box.low, bounds));
+  const yMid = Math.round(priceToY(box.mid, bounds));
+  ctx.save();
+  ctx.fillStyle = box.fillColor || "rgba(234, 179, 8, 0.04)";
+  ctx.fillRect(padding.left, yHigh, rightAxisX - padding.left, yLow - yHigh);
+  ctx.strokeStyle = box.color;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  ctx.moveTo(padding.left, yHigh + 0.5);
+  ctx.lineTo(rightAxisX, yHigh + 0.5);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(padding.left, yLow + 0.5);
+  ctx.lineTo(rightAxisX, yLow + 0.5);
+  ctx.stroke();
+  ctx.setLineDash([2, 3]);
+  ctx.strokeStyle = box.color;
+  ctx.globalAlpha = 0.65;
+  ctx.beginPath();
+  ctx.moveTo(padding.left, yMid + 0.5);
+  ctx.lineTo(rightAxisX, yMid + 0.5);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.setLineDash([]);
+  ctx.font = "bold 9px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const highText = `${box.prefix}H $${formatPrice(box.high)}`;
+  const highW = ctx.measureText(highText).width + 8;
+  ctx.fillStyle = box.color;
+  ctx.beginPath();
+  ctx.roundRect(rightAxisX + 3, yHigh - 7, highW, 14, 3);
+  ctx.fill();
+  ctx.fillStyle = "#020616";
+  ctx.fillText(highText, rightAxisX + 3 + highW / 2, yHigh);
+  const lowText = `${box.prefix}L $${formatPrice(box.low)}`;
+  const lowW = ctx.measureText(lowText).width + 8;
+  ctx.fillStyle = box.color;
+  ctx.beginPath();
+  ctx.roundRect(rightAxisX + 3, yLow - 7, lowW, 14, 3);
+  ctx.fill();
+  ctx.fillStyle = "#020616";
+  ctx.fillText(lowText, rightAxisX + 3 + lowW / 2, yLow);
+  ctx.restore();
+}
+
+// src/engine/lines.ts
+function drawLineSeries(ctx, points, bounds, options) {
+  if (points.length < 2) return;
+  const { chartHeight, padding } = bounds;
+  const bottomAxisY = chartHeight - padding.bottom;
+  ctx.save();
+  if (options.fillGradient) {
+    const gradient = ctx.createLinearGradient(0, padding.top, 0, bottomAxisY);
+    gradient.addColorStop(0, options.gradientColorTop || "rgba(56, 189, 248, 0.20)");
+    gradient.addColorStop(1, options.gradientColorBottom || "rgba(56, 189, 248, 0.00)");
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, bottomAxisY);
+    points.forEach((pt) => {
+      const y = priceToY(pt.price, bounds);
+      ctx.lineTo(pt.x, y);
+    });
+    ctx.lineTo(points[points.length - 1].x, bottomAxisY);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.strokeStyle = options.color;
+  ctx.lineWidth = options.lineWidth ?? 2;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  if (options.lineStyle === "dashed") {
+    ctx.setLineDash([5, 4]);
+  } else if (options.lineStyle === "dotted") {
+    ctx.setLineDash([2, 3]);
+  } else {
+    ctx.setLineDash([]);
+  }
+  ctx.beginPath();
+  points.forEach((pt, idx) => {
+    const y = priceToY(pt.price, bounds);
+    if (idx === 0) {
+      ctx.moveTo(pt.x, y);
+    } else {
+      ctx.lineTo(pt.x, y);
+    }
+  });
+  ctx.stroke();
+  ctx.restore();
+}
+
+// src/components/VortexRangeChart.tsx
+var import_jsx_runtime3 = require("react/jsx-runtime");
 var VortexRangeChart = ({
   candles,
   priorDay,
@@ -243,155 +739,215 @@ var VortexRangeChart = ({
   overlayMode = "all",
   height = 300,
   className = "",
+  showWatermark = true,
   theme = {}
 }) => {
   const containerRef = (0, import_react2.useRef)(null);
-  const chartRef = (0, import_react2.useRef)(null);
-  const mergedColors = { ...VORTEX_THEME.colors, ...theme.colors || {} };
+  const canvasRef = (0, import_react2.useRef)(null);
+  const [containerWidth, setContainerWidth] = (0, import_react2.useState)(600);
+  const [hover, setHover] = (0, import_react2.useState)(null);
+  const mergedColors = (0, import_react2.useMemo)(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
+  const sortedCandles = (0, import_react2.useMemo)(() => {
+    return Array.from(
+      new Map(candles.map((c) => [c.t, c])).values()
+    ).sort((a, b) => a.t - b.t);
+  }, [candles]);
   (0, import_react2.useEffect)(() => {
     const el = containerRef.current;
     if (!el) return;
-    el.replaceChildren();
-    const chart = (0, import_lightweight_charts3.createChart)(el, {
-      layout: {
-        background: { type: import_lightweight_charts3.ColorType.Solid, color: "transparent" },
-        textColor: mergedColors.text,
-        fontSize: VORTEX_THEME.typography.fontSize,
-        fontFamily: VORTEX_THEME.typography.fontFamily
-      },
-      grid: {
-        vertLines: { color: mergedColors.grid, style: import_lightweight_charts3.LineStyle.Dotted },
-        horzLines: { color: mergedColors.grid, style: import_lightweight_charts3.LineStyle.Dotted }
-      },
-      rightPriceScale: {
-        visible: true,
-        borderColor: mergedColors.border
-      },
-      leftPriceScale: {
-        visible: false
-      },
-      timeScale: {
-        borderColor: mergedColors.border,
-        timeVisible: true,
-        secondsVisible: false
-      },
-      width: el.clientWidth,
-      height
+    setContainerWidth(el.clientWidth || 600);
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.width > 0) {
+          setContainerWidth(entry.contentRect.width);
+        }
+      }
     });
-    chartRef.current = chart;
-    const candleSeries = chart.addSeries(import_lightweight_charts3.CandlestickSeries, {
-      priceScaleId: "right",
-      upColor: mergedColors.bullish,
-      downColor: mergedColors.bearish,
-      borderVisible: false,
-      wickUpColor: mergedColors.bullish,
-      wickDownColor: mergedColors.bearish
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const bounds = (0, import_react2.useMemo)(() => {
+    const prices = [];
+    sortedCandles.forEach((c) => prices.push(c.high, c.low));
+    if (priorDay && priorDay.high > 0) prices.push(priorDay.high, priorDay.low);
+    if (premarket && premarket.high > 0) prices.push(premarket.high, premarket.low);
+    vwapSeries.forEach((v) => {
+      if (typeof v.vwap === "number" && v.vwap > 0) prices.push(v.vwap);
     });
-    const chartData = candles.map((c) => ({
-      time: Math.floor(c.t / 1e3),
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close
-    }));
-    const uniqueData = Array.from(
-      new Map(chartData.map((d) => [d.time, d])).values()
-    ).sort((a, b) => a.time - b.time);
-    candleSeries.setData(uniqueData);
+    return computeBounds(prices, containerWidth, height);
+  }, [sortedCandles, priorDay, premarket, vwapSeries, containerWidth, height]);
+  const timeLabels = (0, import_react2.useMemo)(() => {
+    if (sortedCandles.length === 0) return [];
+    const count = sortedCandles.length;
+    const maxLabels = Math.max(3, Math.min(6, Math.floor(containerWidth / 120)));
+    const step = Math.max(1, Math.floor(count / maxLabels));
+    const labels = [];
+    for (let i = 0; i < count; i += step) {
+      const c = sortedCandles[i];
+      const x = indexToX(i, count, bounds);
+      const text = formatCandleTime(c.t, true);
+      labels.push({ x, text });
+    }
+    return labels;
+  }, [sortedCandles, containerWidth, bounds]);
+  const vwapPoints = (0, import_react2.useMemo)(() => {
+    if (vwapSeries.length === 0 || sortedCandles.length === 0) return [];
+    const points = [];
+    const candleCount = sortedCandles.length;
+    vwapSeries.forEach((v) => {
+      let closestIdx = 0;
+      let minDiff = Infinity;
+      for (let i = 0; i < candleCount; i++) {
+        const diff = Math.abs(sortedCandles[i].t - v.t);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestIdx = i;
+        }
+      }
+      const x = indexToX(closestIdx, candleCount, bounds);
+      points.push({ x, price: v.vwap });
+    });
+    return points;
+  }, [vwapSeries, sortedCandles, bounds]);
+  (0, import_react2.useEffect)(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawGridAndAxes(ctx, bounds, timeLabels);
     const showBoxes = overlayMode === "all" || overlayMode === "boxes";
     const showVwap = overlayMode === "all" || overlayMode === "vwap";
     if (showBoxes && priorDay && priorDay.high > 0) {
-      candleSeries.createPriceLine({
-        price: priorDay.high,
-        color: "rgba(234, 179, 8, 0.8)",
-        lineWidth: 1,
-        lineStyle: import_lightweight_charts3.LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: `PDH $${priorDay.high.toFixed(2)}`
-      });
-      candleSeries.createPriceLine({
-        price: priorDay.mid,
-        color: "rgba(234, 179, 8, 0.5)",
-        lineWidth: 1,
-        lineStyle: import_lightweight_charts3.LineStyle.Dotted,
-        axisLabelVisible: false,
-        title: `Prior Mid`
-      });
-      candleSeries.createPriceLine({
-        price: priorDay.low,
-        color: "rgba(234, 179, 8, 0.8)",
-        lineWidth: 1,
-        lineStyle: import_lightweight_charts3.LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: `PDL $${priorDay.low.toFixed(2)}`
-      });
+      drawSessionBox(ctx, {
+        high: priorDay.high,
+        low: priorDay.low,
+        mid: priorDay.mid,
+        color: "rgba(234, 179, 8, 0.85)",
+        fillColor: "rgba(234, 179, 8, 0.035)",
+        prefix: "PD"
+      }, bounds);
     }
     if (showBoxes && premarket && premarket.high > 0) {
-      candleSeries.createPriceLine({
-        price: premarket.high,
-        color: "rgba(56, 189, 248, 0.8)",
-        lineWidth: 1,
-        lineStyle: import_lightweight_charts3.LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: `PMH $${premarket.high.toFixed(2)}`
-      });
-      candleSeries.createPriceLine({
-        price: premarket.mid,
-        color: "rgba(56, 189, 248, 0.5)",
-        lineWidth: 1,
-        lineStyle: import_lightweight_charts3.LineStyle.Dotted,
-        axisLabelVisible: false,
-        title: `PM Mid`
-      });
-      candleSeries.createPriceLine({
-        price: premarket.low,
-        color: "rgba(56, 189, 248, 0.8)",
-        lineWidth: 1,
-        lineStyle: import_lightweight_charts3.LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: `PML $${premarket.low.toFixed(2)}`
-      });
+      drawSessionBox(ctx, {
+        high: premarket.high,
+        low: premarket.low,
+        mid: premarket.mid,
+        color: "rgba(56, 189, 248, 0.85)",
+        fillColor: "rgba(56, 189, 248, 0.035)",
+        prefix: "PM"
+      }, bounds);
     }
-    if (showVwap && vwapSeries.length > 0) {
-      const vwapLine = chart.addSeries(import_lightweight_charts3.LineSeries, {
-        priceScaleId: "right",
+    drawCandlesticks(ctx, sortedCandles, bounds, {
+      upColor: mergedColors.bullish,
+      downColor: mergedColors.bearish
+    });
+    if (showVwap && vwapPoints.length > 1) {
+      drawLineSeries(ctx, vwapPoints, bounds, {
         color: mergedColors.vwap,
         lineWidth: 2,
-        lineStyle: import_lightweight_charts3.LineStyle.Solid
+        lineStyle: "solid"
       });
-      const vwapData = vwapSeries.map((v) => ({
-        time: Math.floor(v.t / 1e3),
-        value: v.vwap
-      }));
-      const uniqueVwap = Array.from(
-        new Map(vwapData.map((d) => [d.time, d])).values()
-      ).sort((a, b) => a.time - b.time);
-      vwapLine.setData(uniqueVwap);
     }
-    chart.timeScale().fitContent();
-    const handleResize = () => {
-      if (el) chart.applyOptions({ width: el.clientWidth });
-    };
-    window.addEventListener("resize", handleResize);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      chart.remove();
-    };
-  }, [candles, priorDay, premarket, vwapSeries, overlayMode, height, mergedColors]);
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+    if (hover && hover.candle) {
+      const cursorPrice = yToPrice(hover.mouseY, bounds);
+      const timeStr = formatCandleTime(hover.candle.t, true);
+      drawCrosshair(ctx, bounds, hover, cursorPrice, timeStr);
+    }
+  }, [
+    containerWidth,
+    height,
+    bounds,
+    sortedCandles,
+    priorDay,
+    premarket,
+    vwapPoints,
+    overlayMode,
+    timeLabels,
+    hover,
+    showWatermark,
+    mergedColors
+  ]);
+  const handleMouseMove = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas || sortedCandles.length === 0) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const idx = xToIndex(mouseX, sortedCandles.length, bounds);
+    const candle = sortedCandles[idx] || null;
+    setHover({ mouseX, mouseY, index: idx, candle });
+  };
+  const handleMouseLeave = () => {
+    setHover(null);
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
     "div",
     {
       ref: containerRef,
-      className: `w-full overflow-hidden ${className}`,
-      style: { height }
+      className: `relative w-full overflow-hidden select-none ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+          "canvas",
+          {
+            ref: canvasRef,
+            onMouseMove: handleMouseMove,
+            onMouseLeave: handleMouseLeave,
+            className: "cursor-crosshair block"
+          }
+        ),
+        showWatermark && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(VortexWatermarkOverlay, {}),
+        hover && hover.candle && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "pointer-events-none absolute top-2 left-3 z-20 flex items-center gap-2.5 rounded-lg border border-white/10 bg-black/80 px-2.5 py-1 text-[11px] backdrop-blur-md shadow-lg tabular-nums", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "font-semibold text-zinc-400", children: formatCandleTime(hover.candle.t, true) }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "h-3 w-px bg-white/10" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("strong", { className: "text-zinc-500 font-normal", children: "O: " }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "text-white", children: [
+              "$",
+              formatPrice(hover.candle.open)
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("strong", { className: "text-zinc-500 font-normal", children: "H: " }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "text-white", children: [
+              "$",
+              formatPrice(hover.candle.high)
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("strong", { className: "text-zinc-500 font-normal", children: "L: " }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "text-white", children: [
+              "$",
+              formatPrice(hover.candle.low)
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("strong", { className: "text-zinc-500 font-normal", children: "C: " }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+              "span",
+              {
+                className: `font-bold ${hover.candle.close >= hover.candle.open ? "text-emerald-400" : "text-rose-400"}`,
+                children: [
+                  "$",
+                  formatPrice(hover.candle.close)
+                ]
+              }
+            )
+          ] })
+        ] })
+      ]
     }
   );
 };
 
 // src/components/VortexConeChart.tsx
 var import_react3 = require("react");
-var import_lightweight_charts4 = require("lightweight-charts");
-var import_jsx_runtime3 = require("react/jsx-runtime");
+var import_jsx_runtime4 = require("react/jsx-runtime");
 var VortexConeChart = ({
   candles,
   historicalCandles,
@@ -405,140 +961,217 @@ var VortexConeChart = ({
   rangeLow,
   height = 280,
   className = "",
+  showWatermark = true,
   theme = {}
 }) => {
   const containerRef = (0, import_react3.useRef)(null);
-  const chartRef = (0, import_react3.useRef)(null);
-  const mergedColors = { ...VORTEX_THEME.colors, ...theme.colors || {} };
-  const resolvedCandles = candles || historicalCandles || [];
-  const resolvedSpot = spotPrice ?? currentPrice ?? 0;
+  const canvasRef = (0, import_react3.useRef)(null);
+  const [containerWidth, setContainerWidth] = (0, import_react3.useState)(600);
+  const [hover, setHover] = (0, import_react3.useState)(null);
+  const mergedColors = (0, import_react3.useMemo)(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
+  const resolvedCandles = (0, import_react3.useMemo)(() => {
+    const raw = candles || historicalCandles || [];
+    return Array.from(
+      new Map(raw.map((c) => [c.t, c])).values()
+    ).sort((a, b) => a.t - b.t);
+  }, [candles, historicalCandles]);
+  const resolvedSpot = spotPrice ?? currentPrice ?? (resolvedCandles.length > 0 ? resolvedCandles[resolvedCandles.length - 1].close : 0);
   const resolvedHigh = rangeHigh ?? targetRange?.high ?? (expectedMove ? resolvedSpot + expectedMove.moveAbs : 0);
   const resolvedLow = rangeLow ?? targetRange?.low ?? (expectedMove ? resolvedSpot - expectedMove.moveAbs : 0);
-  const resolvedExpDate = expirationDate || expectedMove?.expiration || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const resolvedExpDate = expirationDate || expectedMove?.expiration || "Expiry";
   const resolvedDte = dte ?? expectedMove?.dte ?? 1;
   (0, import_react3.useEffect)(() => {
     const el = containerRef.current;
     if (!el) return;
-    el.replaceChildren();
-    const chart = (0, import_lightweight_charts4.createChart)(el, {
-      layout: {
-        background: { type: import_lightweight_charts4.ColorType.Solid, color: "transparent" },
-        textColor: mergedColors.text,
-        fontSize: VORTEX_THEME.typography.fontSize,
-        fontFamily: VORTEX_THEME.typography.fontFamily
-      },
-      grid: {
-        vertLines: { color: mergedColors.grid, style: import_lightweight_charts4.LineStyle.Dotted },
-        horzLines: { color: mergedColors.grid, style: import_lightweight_charts4.LineStyle.Dotted }
-      },
-      rightPriceScale: {
-        visible: true,
-        borderColor: mergedColors.border
-      },
-      leftPriceScale: {
-        visible: false
-      },
-      timeScale: {
-        borderColor: mergedColors.border,
-        timeVisible: false
-      },
-      width: el.clientWidth,
-      height
-    });
-    chartRef.current = chart;
-    const historySeries = chart.addSeries(import_lightweight_charts4.LineSeries, {
-      priceScaleId: "right",
-      color: mergedColors.spot,
-      lineWidth: 2,
-      lineStyle: import_lightweight_charts4.LineStyle.Solid,
-      crosshairMarkerVisible: true
-    });
-    const histData = resolvedCandles.map((c) => ({
-      time: new Date(c.t).toISOString().slice(0, 10),
-      value: c.close
-    }));
-    const uniqueHist = Array.from(
-      new Map(histData.map((d) => [d.time, d])).values()
-    ).sort((a, b) => a.time < b.time ? -1 : 1);
-    historySeries.setData(uniqueHist);
-    if (uniqueHist.length > 0 && resolvedSpot > 0 && resolvedHigh > 0 && resolvedLow > 0) {
-      const lastPoint = uniqueHist[uniqueHist.length - 1];
-      let forwardDateStr = resolvedExpDate;
-      if (forwardDateStr === lastPoint.time) {
-        const d = new Date(lastPoint.time);
-        d.setDate(d.getDate() + Math.max(1, resolvedDte));
-        forwardDateStr = d.toISOString().slice(0, 10);
+    setContainerWidth(el.clientWidth || 600);
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.width > 0) {
+          setContainerWidth(entry.contentRect.width);
+        }
       }
-      const upperConeSeries = chart.addSeries(import_lightweight_charts4.LineSeries, {
-        priceScaleId: "right",
-        color: mergedColors.neutral,
-        lineWidth: 1,
-        lineStyle: import_lightweight_charts4.LineStyle.Dashed
-      });
-      upperConeSeries.setData([
-        { time: lastPoint.time, value: resolvedSpot },
-        { time: forwardDateStr, value: resolvedHigh }
-      ]);
-      const lowerConeSeries = chart.addSeries(import_lightweight_charts4.LineSeries, {
-        priceScaleId: "right",
-        color: mergedColors.neutral,
-        lineWidth: 1,
-        lineStyle: import_lightweight_charts4.LineStyle.Dashed
-      });
-      lowerConeSeries.setData([
-        { time: lastPoint.time, value: resolvedSpot },
-        { time: forwardDateStr, value: resolvedLow }
-      ]);
-      upperConeSeries.createPriceLine({
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const futureStepCount = Math.max(2, Math.min(6, resolvedDte));
+  const totalSlots = resolvedCandles.length + futureStepCount;
+  const bounds = (0, import_react3.useMemo)(() => {
+    const prices = [];
+    resolvedCandles.forEach((c) => prices.push(c.close));
+    if (resolvedSpot > 0) prices.push(resolvedSpot);
+    if (resolvedHigh > 0) prices.push(resolvedHigh);
+    if (resolvedLow > 0) prices.push(resolvedLow);
+    return computeBounds(prices, containerWidth, height);
+  }, [resolvedCandles, resolvedSpot, resolvedHigh, resolvedLow, containerWidth, height]);
+  const histPoints = (0, import_react3.useMemo)(() => {
+    return resolvedCandles.map((c, idx) => ({
+      x: indexToX(idx, totalSlots, bounds),
+      price: c.close
+    }));
+  }, [resolvedCandles, totalSlots, bounds]);
+  const timeLabels = (0, import_react3.useMemo)(() => {
+    if (resolvedCandles.length === 0) return [];
+    const labels = [];
+    const maxHistLabels = Math.max(2, Math.floor(containerWidth / 150));
+    const step = Math.max(1, Math.floor(resolvedCandles.length / maxHistLabels));
+    for (let i = 0; i < resolvedCandles.length; i += step) {
+      const c = resolvedCandles[i];
+      const x = indexToX(i, totalSlots, bounds);
+      labels.push({ x, text: formatCandleTime(c.t, false) });
+    }
+    const expiryX = indexToX(totalSlots - 1, totalSlots, bounds);
+    labels.push({ x: expiryX, text: resolvedExpDate });
+    return labels;
+  }, [resolvedCandles, totalSlots, bounds, containerWidth, resolvedExpDate]);
+  const priceLines = (0, import_react3.useMemo)(() => {
+    const list = [];
+    if (resolvedHigh > 0) {
+      list.push({
         price: resolvedHigh,
         color: mergedColors.neutral,
         lineWidth: 1,
-        lineStyle: import_lightweight_charts4.LineStyle.Dotted,
-        axisLabelVisible: true,
-        title: `Upper Target $${resolvedHigh.toFixed(2)}`
+        lineStyle: "dotted",
+        title: `Upper Target $${formatPrice(resolvedHigh)}`,
+        axisLabelVisible: true
       });
-      lowerConeSeries.createPriceLine({
+    }
+    if (resolvedLow > 0) {
+      list.push({
         price: resolvedLow,
         color: mergedColors.neutral,
         lineWidth: 1,
-        lineStyle: import_lightweight_charts4.LineStyle.Dotted,
-        axisLabelVisible: true,
-        title: `Lower Target $${resolvedLow.toFixed(2)}`
+        lineStyle: "dotted",
+        title: `Lower Target $${formatPrice(resolvedLow)}`,
+        axisLabelVisible: true
       });
-      historySeries.createPriceLine({
+    }
+    if (resolvedSpot > 0) {
+      list.push({
         price: resolvedSpot,
         color: mergedColors.spot,
         lineWidth: 1,
-        lineStyle: import_lightweight_charts4.LineStyle.Solid,
-        axisLabelVisible: true,
-        title: `Spot $${resolvedSpot.toFixed(2)}`
+        lineStyle: "solid",
+        title: `Spot $${formatPrice(resolvedSpot)}`,
+        axisLabelVisible: true
       });
     }
-    chart.timeScale().fitContent();
-    const handleResize = () => {
-      if (el) chart.applyOptions({ width: el.clientWidth });
-    };
-    window.addEventListener("resize", handleResize);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      chart.remove();
-    };
+    return list;
+  }, [resolvedHigh, resolvedLow, resolvedSpot, mergedColors]);
+  (0, import_react3.useEffect)(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawGridAndAxes(ctx, bounds, timeLabels);
+    if (histPoints.length > 1) {
+      drawLineSeries(ctx, histPoints, bounds, {
+        color: mergedColors.spot,
+        lineWidth: 2,
+        lineStyle: "solid",
+        fillGradient: true,
+        gradientColorTop: "rgba(56, 189, 248, 0.18)",
+        gradientColorBottom: "rgba(56, 189, 248, 0.00)"
+      });
+    }
+    if (histPoints.length > 0 && resolvedHigh > 0 && resolvedLow > 0) {
+      const lastPoint = histPoints[histPoints.length - 1];
+      const expiryX = indexToX(totalSlots - 1, totalSlots, bounds);
+      drawLineSeries(
+        ctx,
+        [
+          { x: lastPoint.x, price: resolvedSpot },
+          { x: expiryX, price: resolvedHigh }
+        ],
+        bounds,
+        {
+          color: mergedColors.neutral,
+          lineWidth: 1.5,
+          lineStyle: "dashed"
+        }
+      );
+      drawLineSeries(
+        ctx,
+        [
+          { x: lastPoint.x, price: resolvedSpot },
+          { x: expiryX, price: resolvedLow }
+        ],
+        bounds,
+        {
+          color: mergedColors.neutral,
+          lineWidth: 1.5,
+          lineStyle: "dashed"
+        }
+      );
+    }
+    drawPriceLines(ctx, priceLines, bounds);
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+    if (hover && hover.candle) {
+      const cursorPrice = yToPrice(hover.mouseY, bounds);
+      const timeStr = formatCandleTime(hover.candle.t, false);
+      drawCrosshair(ctx, bounds, hover, cursorPrice, timeStr);
+    }
   }, [
-    resolvedCandles,
+    containerWidth,
+    height,
+    bounds,
+    histPoints,
     resolvedSpot,
-    resolvedExpDate,
-    resolvedDte,
     resolvedHigh,
     resolvedLow,
-    height,
+    totalSlots,
+    priceLines,
+    timeLabels,
+    hover,
+    showWatermark,
     mergedColors
   ]);
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+  const handleMouseMove = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas || resolvedCandles.length === 0) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const idx = xToIndex(mouseX, totalSlots, bounds);
+    const candle = resolvedCandles[idx] || null;
+    setHover({ mouseX, mouseY, index: idx, candle });
+  };
+  const handleMouseLeave = () => {
+    setHover(null);
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
     "div",
     {
       ref: containerRef,
-      className: `w-full overflow-hidden ${className}`,
-      style: { height }
+      className: `relative w-full overflow-hidden select-none ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+          "canvas",
+          {
+            ref: canvasRef,
+            onMouseMove: handleMouseMove,
+            onMouseLeave: handleMouseLeave,
+            className: "cursor-crosshair block"
+          }
+        ),
+        showWatermark && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(VortexWatermarkOverlay, {}),
+        hover && hover.candle && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "pointer-events-none absolute top-2 left-3 z-20 flex items-center gap-2.5 rounded-lg border border-white/10 bg-black/80 px-2.5 py-1 text-[11px] backdrop-blur-md shadow-lg tabular-nums", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "font-semibold text-zinc-400", children: formatCandleTime(hover.candle.t, false) }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "h-3 w-px bg-white/10" }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("strong", { className: "text-zinc-500 font-normal", children: "Close: " }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "font-bold text-sky-400", children: [
+              "$",
+              formatPrice(hover.candle.close)
+            ] })
+          ] })
+        ] })
+      ]
     }
   );
 };
@@ -548,7 +1181,9 @@ var VortexConeChart = ({
   VortexCandleChart,
   VortexConeChart,
   VortexRangeChart,
+  VortexWatermarkOverlay,
+  drawVortexWatermark,
   formatCandleTime,
-  toLineStyle
+  formatPrice
 });
 //# sourceMappingURL=index.cjs.map

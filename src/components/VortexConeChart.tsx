@@ -1,13 +1,14 @@
-import React, { useEffect, useRef } from "react";
-import {
-  createChart,
-  ColorType,
-  LineStyle,
-  LineSeries,
-  type IChartApi,
-} from "lightweight-charts";
-import { VORTEX_THEME } from "../theme/tokens";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import type { Candle, ExpectedMoveSpec, TargetRange } from "../types";
+import { VORTEX_THEME } from "../theme/tokens";
+import { computeBounds, indexToX, xToIndex, yToPrice } from "../engine/coordinates";
+import { drawGridAndAxes } from "../engine/grid";
+import { drawLineSeries, type DataPoint } from "../engine/lines";
+import { drawPriceLines } from "../engine/price-lines";
+import { drawVortexWatermark, VortexWatermarkOverlay } from "../engine/watermark";
+import { drawCrosshair, type HoverState } from "../engine/interaction";
+import { setupCanvasDpi } from "../engine/canvas";
+import { formatCandleTime, formatPrice } from "../utils/chart-defaults";
 
 export interface VortexConeChartProps {
   candles?: Candle[];
@@ -22,6 +23,7 @@ export interface VortexConeChartProps {
   rangeLow?: number;
   height?: number;
   className?: string;
+  showWatermark?: boolean;
   theme?: Partial<typeof VORTEX_THEME>;
 }
 
@@ -38,165 +40,268 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
   rangeLow,
   height = 280,
   className = "",
+  showWatermark = true,
   theme = {},
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const chartRef = useRef<IChartApi | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [containerWidth, setContainerWidth] = useState<number>(600);
+  const [hover, setHover] = useState<HoverState | null>(null);
 
-  const mergedColors = { ...VORTEX_THEME.colors, ...(theme.colors || {}) };
+  const mergedColors = useMemo(() => ({ ...VORTEX_THEME.colors, ...(theme.colors || {}) }), [theme]);
 
   // Resolve normalized inputs
-  const resolvedCandles = candles || historicalCandles || [];
-  const resolvedSpot = spotPrice ?? currentPrice ?? 0;
+  const resolvedCandles = useMemo(() => {
+    const raw = candles || historicalCandles || [];
+    return Array.from(
+      new Map(raw.map((c) => [c.t, c])).values()
+    ).sort((a, b) => a.t - b.t);
+  }, [candles, historicalCandles]);
+
+  const resolvedSpot = spotPrice ?? currentPrice ?? (resolvedCandles.length > 0 ? resolvedCandles[resolvedCandles.length - 1].close : 0);
   const resolvedHigh = rangeHigh ?? targetRange?.high ?? (expectedMove ? resolvedSpot + expectedMove.moveAbs : 0);
   const resolvedLow = rangeLow ?? targetRange?.low ?? (expectedMove ? resolvedSpot - expectedMove.moveAbs : 0);
-  const resolvedExpDate = expirationDate || expectedMove?.expiration || new Date().toISOString().slice(0, 10);
+  const resolvedExpDate = expirationDate || expectedMove?.expiration || "Expiry";
   const resolvedDte = dte ?? expectedMove?.dte ?? 1;
 
+  // Handle ResizeObserver
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    el.replaceChildren();
+    setContainerWidth(el.clientWidth || 600);
 
-    const chart = createChart(el, {
-      layout: {
-        background: { type: ColorType.Solid, color: "transparent" },
-        textColor: mergedColors.text,
-        fontSize: VORTEX_THEME.typography.fontSize,
-        fontFamily: VORTEX_THEME.typography.fontFamily,
-      },
-      grid: {
-        vertLines: { color: mergedColors.grid, style: LineStyle.Dotted },
-        horzLines: { color: mergedColors.grid, style: LineStyle.Dotted },
-      },
-      rightPriceScale: {
-        visible: true,
-        borderColor: mergedColors.border,
-      },
-      leftPriceScale: {
-        visible: false,
-      },
-      timeScale: {
-        borderColor: mergedColors.border,
-        timeVisible: false,
-      },
-      width: el.clientWidth,
-      height,
-    });
-    chartRef.current = chart;
-
-    // 1. Courbe historique des clôtures
-    const historySeries = chart.addSeries(LineSeries, {
-      priceScaleId: "right",
-      color: mergedColors.spot,
-      lineWidth: 2,
-      lineStyle: LineStyle.Solid,
-      crosshairMarkerVisible: true,
-    });
-
-    const histData = resolvedCandles.map((c) => ({
-      time: new Date(c.t).toISOString().slice(0, 10),
-      value: c.close,
-    }));
-
-    const uniqueHist = Array.from(
-      new Map(histData.map((d) => [d.time, d])).values()
-    ).sort((a, b) => (a.time < b.time ? -1 : 1));
-
-    historySeries.setData(uniqueHist);
-
-    // 2. Cône de projection forward (Spot -> Expiration)
-    if (uniqueHist.length > 0 && resolvedSpot > 0 && resolvedHigh > 0 && resolvedLow > 0) {
-      const lastPoint = uniqueHist[uniqueHist.length - 1];
-
-      let forwardDateStr = resolvedExpDate;
-      if (forwardDateStr === lastPoint.time) {
-        const d = new Date(lastPoint.time);
-        d.setDate(d.getDate() + Math.max(1, resolvedDte));
-        forwardDateStr = d.toISOString().slice(0, 10);
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.width > 0) {
+          setContainerWidth(entry.contentRect.width);
+        }
       }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
-      // Ligne supérieure du cône (+move)
-      const upperConeSeries = chart.addSeries(LineSeries, {
-        priceScaleId: "right",
-        color: mergedColors.neutral,
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-      });
-      upperConeSeries.setData([
-        { time: lastPoint.time, value: resolvedSpot },
-        { time: forwardDateStr, value: resolvedHigh },
-      ]);
+  // Total points count including future projection steps
+  const futureStepCount = Math.max(2, Math.min(6, resolvedDte));
+  const totalSlots = resolvedCandles.length + futureStepCount;
 
-      // Ligne inférieure du cône (-move)
-      const lowerConeSeries = chart.addSeries(LineSeries, {
-        priceScaleId: "right",
-        color: mergedColors.neutral,
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-      });
-      lowerConeSeries.setData([
-        { time: lastPoint.time, value: resolvedSpot },
-        { time: forwardDateStr, value: resolvedLow },
-      ]);
+  // Compute bounds
+  const bounds = useMemo(() => {
+    const prices: number[] = [];
+    resolvedCandles.forEach((c) => prices.push(c.close));
+    if (resolvedSpot > 0) prices.push(resolvedSpot);
+    if (resolvedHigh > 0) prices.push(resolvedHigh);
+    if (resolvedLow > 0) prices.push(resolvedLow);
 
-      // Lignes de prix cibles
-      upperConeSeries.createPriceLine({
+    return computeBounds(prices, containerWidth, height);
+  }, [resolvedCandles, resolvedSpot, resolvedHigh, resolvedLow, containerWidth, height]);
+
+  // Historical line points
+  const histPoints = useMemo<DataPoint[]>(() => {
+    return resolvedCandles.map((c, idx) => ({
+      x: indexToX(idx, totalSlots, bounds),
+      price: c.close,
+    }));
+  }, [resolvedCandles, totalSlots, bounds]);
+
+  // Generate bottom time labels
+  const timeLabels = useMemo(() => {
+    if (resolvedCandles.length === 0) return [];
+    const labels: { x: number; text: string }[] = [];
+
+    // Sample historical labels
+    const maxHistLabels = Math.max(2, Math.floor(containerWidth / 150));
+    const step = Math.max(1, Math.floor(resolvedCandles.length / maxHistLabels));
+
+    for (let i = 0; i < resolvedCandles.length; i += step) {
+      const c = resolvedCandles[i];
+      const x = indexToX(i, totalSlots, bounds);
+      labels.push({ x, text: formatCandleTime(c.t, false) });
+    }
+
+    // Future Expiry label
+    const expiryX = indexToX(totalSlots - 1, totalSlots, bounds);
+    labels.push({ x: expiryX, text: resolvedExpDate });
+
+    return labels;
+  }, [resolvedCandles, totalSlots, bounds, containerWidth, resolvedExpDate]);
+
+  // Price target lines
+  const priceLines = useMemo(() => {
+    const list = [];
+    if (resolvedHigh > 0) {
+      list.push({
         price: resolvedHigh,
         color: mergedColors.neutral,
-        lineWidth: 1,
-        lineStyle: LineStyle.Dotted,
+        lineWidth: 1 as const,
+        lineStyle: "dotted" as const,
+        title: `Upper Target $${formatPrice(resolvedHigh)}`,
         axisLabelVisible: true,
-        title: `Upper Target $${resolvedHigh.toFixed(2)}`,
       });
-
-      lowerConeSeries.createPriceLine({
+    }
+    if (resolvedLow > 0) {
+      list.push({
         price: resolvedLow,
         color: mergedColors.neutral,
-        lineWidth: 1,
-        lineStyle: LineStyle.Dotted,
+        lineWidth: 1 as const,
+        lineStyle: "dotted" as const,
+        title: `Lower Target $${formatPrice(resolvedLow)}`,
         axisLabelVisible: true,
-        title: `Lower Target $${resolvedLow.toFixed(2)}`,
       });
-
-      historySeries.createPriceLine({
+    }
+    if (resolvedSpot > 0) {
+      list.push({
         price: resolvedSpot,
         color: mergedColors.spot,
-        lineWidth: 1,
-        lineStyle: LineStyle.Solid,
+        lineWidth: 1 as const,
+        lineStyle: "solid" as const,
+        title: `Spot $${formatPrice(resolvedSpot)}`,
         axisLabelVisible: true,
-        title: `Spot $${resolvedSpot.toFixed(2)}`,
+      });
+    }
+    return list;
+  }, [resolvedHigh, resolvedLow, resolvedSpot, mergedColors]);
+
+  // Render Canvas
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+
+    ctx.clearRect(0, 0, containerWidth, height);
+
+    // 1. Grid & Axes
+    drawGridAndAxes(ctx, bounds, timeLabels);
+
+    // 2. Historical Close Price Line with subtle cyan gradient fill
+    if (histPoints.length > 1) {
+      drawLineSeries(ctx, histPoints, bounds, {
+        color: mergedColors.spot,
+        lineWidth: 2,
+        lineStyle: "solid",
+        fillGradient: true,
+        gradientColorTop: "rgba(56, 189, 248, 0.18)",
+        gradientColorBottom: "rgba(56, 189, 248, 0.00)",
       });
     }
 
-    chart.timeScale().fitContent();
+    // 3. Forward Volatility Projection Cone (Spot -> Targets)
+    if (histPoints.length > 0 && resolvedHigh > 0 && resolvedLow > 0) {
+      const lastPoint = histPoints[histPoints.length - 1];
+      const expiryX = indexToX(totalSlots - 1, totalSlots, bounds);
 
-    const handleResize = () => {
-      if (el) chart.applyOptions({ width: el.clientWidth });
-    };
-    window.addEventListener("resize", handleResize);
+      // Upper cone projection line
+      drawLineSeries(
+        ctx,
+        [
+          { x: lastPoint.x, price: resolvedSpot },
+          { x: expiryX, price: resolvedHigh },
+        ],
+        bounds,
+        {
+          color: mergedColors.neutral,
+          lineWidth: 1.5,
+          lineStyle: "dashed",
+        }
+      );
 
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      chart.remove();
-    };
+      // Lower cone projection line
+      drawLineSeries(
+        ctx,
+        [
+          { x: lastPoint.x, price: resolvedSpot },
+          { x: expiryX, price: resolvedLow },
+        ],
+        bounds,
+        {
+          color: mergedColors.neutral,
+          lineWidth: 1.5,
+          lineStyle: "dashed",
+        }
+      );
+    }
+
+    // 4. Horizontal Target & Spot Price Lines
+    drawPriceLines(ctx, priceLines, bounds);
+
+    // 5. VorteX Watermark
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+
+    // 6. Crosshair on hover
+    if (hover && hover.candle) {
+      const cursorPrice = yToPrice(hover.mouseY, bounds);
+      const timeStr = formatCandleTime(hover.candle.t, false);
+      drawCrosshair(ctx, bounds, hover, cursorPrice, timeStr);
+    }
   }, [
-    resolvedCandles,
+    containerWidth,
+    height,
+    bounds,
+    histPoints,
     resolvedSpot,
-    resolvedExpDate,
-    resolvedDte,
     resolvedHigh,
     resolvedLow,
-    height,
+    totalSlots,
+    priceLines,
+    timeLabels,
+    hover,
+    showWatermark,
     mergedColors,
   ]);
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas || resolvedCandles.length === 0) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const idx = xToIndex(mouseX, totalSlots, bounds);
+    const candle = resolvedCandles[idx] || null;
+
+    setHover({ mouseX, mouseY, index: idx, candle });
+  };
+
+  const handleMouseLeave = () => {
+    setHover(null);
+  };
 
   return (
     <div
       ref={containerRef}
-      className={`w-full overflow-hidden ${className}`}
+      className={`relative w-full overflow-hidden select-none ${className}`}
       style={{ height }}
-    />
+    >
+      <canvas
+        ref={canvasRef}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        className="cursor-crosshair block"
+      />
+
+      {/* Official VorteX Branding Overlay */}
+      {showWatermark && <VortexWatermarkOverlay />}
+
+      {/* Floating Glassmorphism Tooltip */}
+      {hover && hover.candle && (
+        <div className="pointer-events-none absolute top-2 left-3 z-20 flex items-center gap-2.5 rounded-lg border border-white/10 bg-black/80 px-2.5 py-1 text-[11px] backdrop-blur-md shadow-lg tabular-nums">
+          <span className="font-semibold text-zinc-400">
+            {formatCandleTime(hover.candle.t, false)}
+          </span>
+          <div className="h-3 w-px bg-white/10" />
+          <span>
+            <strong className="text-zinc-500 font-normal">Close: </strong>
+            <span className="font-bold text-sky-400">${formatPrice(hover.candle.close)}</span>
+          </span>
+        </div>
+      )}
+    </div>
   );
 };

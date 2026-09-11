@@ -1,15 +1,15 @@
-import React, { useEffect, useRef } from "react";
-import {
-  createChart,
-  ColorType,
-  LineStyle,
-  CandlestickSeries,
-  LineSeries,
-  type IChartApi,
-  type UTCTimestamp,
-} from "lightweight-charts";
-import { VORTEX_THEME } from "../theme/tokens";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import type { Candle, PriorDayRange, PremarketRange, VwapPoint } from "../types";
+import { VORTEX_THEME } from "../theme/tokens";
+import { computeBounds, indexToX, xToIndex, yToPrice } from "../engine/coordinates";
+import { drawGridAndAxes } from "../engine/grid";
+import { drawCandlesticks } from "../engine/candles";
+import { drawSessionBox } from "../engine/boxes";
+import { drawLineSeries, type DataPoint } from "../engine/lines";
+import { drawVortexWatermark, VortexWatermarkOverlay } from "../engine/watermark";
+import { drawCrosshair, type HoverState } from "../engine/interaction";
+import { setupCanvasDpi } from "../engine/canvas";
+import { formatCandleTime, formatPrice } from "../utils/chart-defaults";
 
 export interface VortexRangeChartProps {
   candles: Candle[];
@@ -19,6 +19,7 @@ export interface VortexRangeChartProps {
   overlayMode?: "all" | "boxes" | "vwap" | "none";
   height?: number;
   className?: string;
+  showWatermark?: boolean;
   theme?: Partial<typeof VORTEX_THEME>;
 }
 
@@ -30,167 +31,244 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
   overlayMode = "all",
   height = 300,
   className = "",
+  showWatermark = true,
   theme = {},
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const chartRef = useRef<IChartApi | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [containerWidth, setContainerWidth] = useState<number>(600);
+  const [hover, setHover] = useState<HoverState | null>(null);
 
-  const mergedColors = { ...VORTEX_THEME.colors, ...(theme.colors || {}) };
+  const mergedColors = useMemo(() => ({ ...VORTEX_THEME.colors, ...(theme.colors || {}) }), [theme]);
 
+  // Deduplicate and sort intraday candles
+  const sortedCandles = useMemo(() => {
+    return Array.from(
+      new Map(candles.map((c) => [c.t, c])).values()
+    ).sort((a, b) => a.t - b.t);
+  }, [candles]);
+
+  // Handle ResizeObserver
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    el.replaceChildren();
+    setContainerWidth(el.clientWidth || 600);
 
-    const chart = createChart(el, {
-      layout: {
-        background: { type: ColorType.Solid, color: "transparent" },
-        textColor: mergedColors.text,
-        fontSize: VORTEX_THEME.typography.fontSize,
-        fontFamily: VORTEX_THEME.typography.fontFamily,
-      },
-      grid: {
-        vertLines: { color: mergedColors.grid, style: LineStyle.Dotted },
-        horzLines: { color: mergedColors.grid, style: LineStyle.Dotted },
-      },
-      rightPriceScale: {
-        visible: true,
-        borderColor: mergedColors.border,
-      },
-      leftPriceScale: {
-        visible: false,
-      },
-      timeScale: {
-        borderColor: mergedColors.border,
-        timeVisible: true,
-        secondsVisible: false,
-      },
-      width: el.clientWidth,
-      height,
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.width > 0) {
+          setContainerWidth(entry.contentRect.width);
+        }
+      }
     });
-    chartRef.current = chart;
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
-    const candleSeries = chart.addSeries(CandlestickSeries, {
-      priceScaleId: "right",
-      upColor: mergedColors.bullish,
-      downColor: mergedColors.bearish,
-      borderVisible: false,
-      wickUpColor: mergedColors.bullish,
-      wickDownColor: mergedColors.bearish,
+  // Compute price bounds
+  const bounds = useMemo(() => {
+    const prices: number[] = [];
+    sortedCandles.forEach((c) => prices.push(c.high, c.low));
+
+    if (priorDay && priorDay.high > 0) prices.push(priorDay.high, priorDay.low);
+    if (premarket && premarket.high > 0) prices.push(premarket.high, premarket.low);
+    vwapSeries.forEach((v) => {
+      if (typeof v.vwap === "number" && v.vwap > 0) prices.push(v.vwap);
     });
 
-    const chartData = candles.map((c) => ({
-      time: Math.floor(c.t / 1000) as UTCTimestamp,
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
-    }));
+    return computeBounds(prices, containerWidth, height);
+  }, [sortedCandles, priorDay, premarket, vwapSeries, containerWidth, height]);
 
-    const uniqueData = Array.from(
-      new Map(chartData.map((d) => [d.time, d])).values()
-    ).sort((a, b) => a.time - b.time);
+  // Generate bottom time labels
+  const timeLabels = useMemo(() => {
+    if (sortedCandles.length === 0) return [];
+    const count = sortedCandles.length;
+    const maxLabels = Math.max(3, Math.min(6, Math.floor(containerWidth / 120)));
+    const step = Math.max(1, Math.floor(count / maxLabels));
 
-    candleSeries.setData(uniqueData);
+    const labels: { x: number; text: string }[] = [];
+    for (let i = 0; i < count; i += step) {
+      const c = sortedCandles[i];
+      const x = indexToX(i, count, bounds);
+      const text = formatCandleTime(c.t, true);
+      labels.push({ x, text });
+    }
+    return labels;
+  }, [sortedCandles, containerWidth, bounds]);
+
+  // Map VWAP series to X coordinates matching closest candles
+  const vwapPoints = useMemo<DataPoint[]>(() => {
+    if (vwapSeries.length === 0 || sortedCandles.length === 0) return [];
+
+    const points: DataPoint[] = [];
+    const candleCount = sortedCandles.length;
+
+    // Create time lookup map
+    vwapSeries.forEach((v) => {
+      // Find closest candle index
+      let closestIdx = 0;
+      let minDiff = Infinity;
+      for (let i = 0; i < candleCount; i++) {
+        const diff = Math.abs(sortedCandles[i].t - v.t);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestIdx = i;
+        }
+      }
+      const x = indexToX(closestIdx, candleCount, bounds);
+      points.push({ x, price: v.vwap });
+    });
+
+    return points;
+  }, [vwapSeries, sortedCandles, bounds]);
+
+  // Render Canvas
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+
+    ctx.clearRect(0, 0, containerWidth, height);
+
+    // 1. Grid & Axes
+    drawGridAndAxes(ctx, bounds, timeLabels);
 
     const showBoxes = overlayMode === "all" || overlayMode === "boxes";
     const showVwap = overlayMode === "all" || overlayMode === "vwap";
 
-    // ── Prior-Day Box Lines (Gold / Neutral) ─────────────────────────
+    // 2. Session Range Boxes (drawn behind candles)
     if (showBoxes && priorDay && priorDay.high > 0) {
-      candleSeries.createPriceLine({
-        price: priorDay.high,
-        color: "rgba(234, 179, 8, 0.8)",
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: `PDH $${priorDay.high.toFixed(2)}`,
-      });
-      candleSeries.createPriceLine({
-        price: priorDay.mid,
-        color: "rgba(234, 179, 8, 0.5)",
-        lineWidth: 1,
-        lineStyle: LineStyle.Dotted,
-        axisLabelVisible: false,
-        title: `Prior Mid`,
-      });
-      candleSeries.createPriceLine({
-        price: priorDay.low,
-        color: "rgba(234, 179, 8, 0.8)",
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: `PDL $${priorDay.low.toFixed(2)}`,
-      });
+      drawSessionBox(ctx, {
+        high: priorDay.high,
+        low: priorDay.low,
+        mid: priorDay.mid,
+        color: "rgba(234, 179, 8, 0.85)",
+        fillColor: "rgba(234, 179, 8, 0.035)",
+        prefix: "PD",
+      }, bounds);
     }
 
-    // ── Premarket Box Lines (Cyan / Sky) ───────────────────────────
     if (showBoxes && premarket && premarket.high > 0) {
-      candleSeries.createPriceLine({
-        price: premarket.high,
-        color: "rgba(56, 189, 248, 0.8)",
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: `PMH $${premarket.high.toFixed(2)}`,
-      });
-      candleSeries.createPriceLine({
-        price: premarket.mid,
-        color: "rgba(56, 189, 248, 0.5)",
-        lineWidth: 1,
-        lineStyle: LineStyle.Dotted,
-        axisLabelVisible: false,
-        title: `PM Mid`,
-      });
-      candleSeries.createPriceLine({
-        price: premarket.low,
-        color: "rgba(56, 189, 248, 0.8)",
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: `PML $${premarket.low.toFixed(2)}`,
-      });
+      drawSessionBox(ctx, {
+        high: premarket.high,
+        low: premarket.low,
+        mid: premarket.mid,
+        color: "rgba(56, 189, 248, 0.85)",
+        fillColor: "rgba(56, 189, 248, 0.035)",
+        prefix: "PM",
+      }, bounds);
     }
 
-    // ── VWAP Line (Purple) ───────────────────────────────────
-    if (showVwap && vwapSeries.length > 0) {
-      const vwapLine = chart.addSeries(LineSeries, {
-        priceScaleId: "right",
+    // 3. Intraday Candlesticks
+    drawCandlesticks(ctx, sortedCandles, bounds, {
+      upColor: mergedColors.bullish,
+      downColor: mergedColors.bearish,
+    });
+
+    // 4. VWAP Line
+    if (showVwap && vwapPoints.length > 1) {
+      drawLineSeries(ctx, vwapPoints, bounds, {
         color: mergedColors.vwap,
         lineWidth: 2,
-        lineStyle: LineStyle.Solid,
+        lineStyle: "solid",
       });
-
-      const vwapData = vwapSeries.map((v) => ({
-        time: Math.floor(v.t / 1000) as UTCTimestamp,
-        value: v.vwap,
-      }));
-      const uniqueVwap = Array.from(
-        new Map(vwapData.map((d) => [d.time, d])).values()
-      ).sort((a, b) => a.time - b.time);
-
-      vwapLine.setData(uniqueVwap);
     }
 
-    chart.timeScale().fitContent();
+    // 5. VorteX Watermark
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
 
-    const handleResize = () => {
-      if (el) chart.applyOptions({ width: el.clientWidth });
-    };
-    window.addEventListener("resize", handleResize);
+    // 6. Crosshair on hover
+    if (hover && hover.candle) {
+      const cursorPrice = yToPrice(hover.mouseY, bounds);
+      const timeStr = formatCandleTime(hover.candle.t, true);
+      drawCrosshair(ctx, bounds, hover, cursorPrice, timeStr);
+    }
+  }, [
+    containerWidth,
+    height,
+    bounds,
+    sortedCandles,
+    priorDay,
+    premarket,
+    vwapPoints,
+    overlayMode,
+    timeLabels,
+    hover,
+    showWatermark,
+    mergedColors,
+  ]);
 
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      chart.remove();
-    };
-  }, [candles, priorDay, premarket, vwapSeries, overlayMode, height, mergedColors]);
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas || sortedCandles.length === 0) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const idx = xToIndex(mouseX, sortedCandles.length, bounds);
+    const candle = sortedCandles[idx] || null;
+
+    setHover({ mouseX, mouseY, index: idx, candle });
+  };
+
+  const handleMouseLeave = () => {
+    setHover(null);
+  };
 
   return (
     <div
       ref={containerRef}
-      className={`w-full overflow-hidden ${className}`}
+      className={`relative w-full overflow-hidden select-none ${className}`}
       style={{ height }}
-    />
+    >
+      <canvas
+        ref={canvasRef}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        className="cursor-crosshair block"
+      />
+
+      {/* Official VorteX Branding Overlay */}
+      {showWatermark && <VortexWatermarkOverlay />}
+
+      {/* Floating Glassmorphism Tooltip */}
+      {hover && hover.candle && (
+        <div className="pointer-events-none absolute top-2 left-3 z-20 flex items-center gap-2.5 rounded-lg border border-white/10 bg-black/80 px-2.5 py-1 text-[11px] backdrop-blur-md shadow-lg tabular-nums">
+          <span className="font-semibold text-zinc-400">
+            {formatCandleTime(hover.candle.t, true)}
+          </span>
+          <div className="h-3 w-px bg-white/10" />
+          <span>
+            <strong className="text-zinc-500 font-normal">O: </strong>
+            <span className="text-white">${formatPrice(hover.candle.open)}</span>
+          </span>
+          <span>
+            <strong className="text-zinc-500 font-normal">H: </strong>
+            <span className="text-white">${formatPrice(hover.candle.high)}</span>
+          </span>
+          <span>
+            <strong className="text-zinc-500 font-normal">L: </strong>
+            <span className="text-white">${formatPrice(hover.candle.low)}</span>
+          </span>
+          <span>
+            <strong className="text-zinc-500 font-normal">C: </strong>
+            <span
+              className={`font-bold ${
+                hover.candle.close >= hover.candle.open ? "text-emerald-400" : "text-rose-400"
+              }`}
+            >
+              ${formatPrice(hover.candle.close)}
+            </span>
+          </span>
+        </div>
+      )}
+    </div>
   );
 };

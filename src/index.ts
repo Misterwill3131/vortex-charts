@@ -3,6 +3,9 @@ export { VortexCandleChart, type VortexCandleChartProps } from "./components/Vor
 export { VortexRangeChart, type VortexRangeChartProps } from "./components/VortexRangeChart";
 export { VortexConeChart, type VortexConeChartProps } from "./components/VortexConeChart";
 
+// Branding & Watermark
+export { drawVortexWatermark, VortexWatermarkOverlay } from "./engine/watermark";
+
 // Theme
 export { VORTEX_THEME } from "./theme/tokens";
 
@@ -18,4 +21,4 @@ export type {
 } from "./types";
 
 // Utilities
-export { formatCandleTime, toLineStyle } from "./utils/chart-defaults";
+export { formatCandleTime, formatPrice } from "./utils/chart-defaults";
