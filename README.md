@@ -1,0 +1,140 @@
+# vortex-charts
+
+> Official financial and quantitative charting library for the **VorteX** platform. Reusable across all VorteX applications, micro-frontends, and dashboards.
+
+[![NPM Version](https://img.shields.io/badge/version-0.1.0-cyan.svg)](https://github.com/Misterwill3131/vortex-charts)
+[![VorteX Theme](https://img.shields.io/badge/theme-vortex--dark-purple.svg)](https://github.com/Misterwill3131/vortex-charts)
+[![License](https://img.shields.io/badge/license-UNLICENSED-rose.svg)](https://github.com/Misterwill3131/vortex-charts)
+
+---
+
+## ⚡ Highlights
+
+- **VorteX Dark Glassmorphic Design**: `#020616` dark background, `#38bdf8` (Spot Cyan), `#10b981` (Bullish Green), `#f43f5e` (Bearish Crimson), `#c084fc` (VWAP Lilac), `#eab308` (Gold / Target).
+- **High Performance**: Built on `lightweight-charts` v5.2 (Canvas 60fps), lightweight bundle, zero layout shift.
+- **Client & SSR Ready**: Shipped with `"use client";` directives and dual ESM/CJS bundles with complete TypeScript types.
+- **Dedicated Quantitative Components**:
+  - `VortexCandleChart`: Multi-timeframe candlesticks with dynamic price lines, high/low swings, ATR bounds.
+  - `VortexRangeChart`: Session structure visualization (Prior-Day range boxes, Premarket range boxes, and anchored VWAP curve).
+  - `VortexConeChart`: Options expected move and forward volatility cone projections.
+
+---
+
+## 📦 Installation
+
+Install directly from GitHub via npm:
+
+```bash
+npm install github:Misterwill3131/vortex-charts#main
+```
+
+Or via yarn / pnpm:
+
+```bash
+pnpm add github:Misterwill3131/vortex-charts#main
+```
+
+---
+
+## 🚀 Quick Start
+
+### 1. Candlestick Chart (`VortexCandleChart`)
+
+```tsx
+import { VortexCandleChart } from "vortex-charts";
+
+const candles = [
+  { t: 1726056000000, open: 580.2, high: 584.5, low: 579.8, close: 583.1 },
+  { t: 1726142400000, open: 583.1, high: 588.0, low: 582.4, close: 587.4 },
+];
+
+export function MyChart() {
+  return (
+    <VortexCandleChart
+      candles={candles}
+      height={320}
+      priceLines={[
+        { price: 580.0, color: "#10b981", title: "Key Support", lineStyle: "dashed" },
+        { price: 590.0, color: "#f43f5e", title: "Resistance", lineStyle: "dashed" },
+      ]}
+    />
+  );
+}
+```
+
+### 2. Session Range Boxes & VWAP (`VortexRangeChart`)
+
+```tsx
+import { VortexRangeChart } from "vortex-charts";
+
+export function SessionChart({ candles, priorDay, premarket, vwapSeries }) {
+  return (
+    <VortexRangeChart
+      candles={candles}
+      priorDay={priorDay}
+      premarket={premarket}
+      vwapSeries={vwapSeries}
+      overlayMode="all" // "all" | "boxes" | "vwap" | "none"
+      height={300}
+    />
+  );
+}
+```
+
+### 3. Expected Move Cone (`VortexConeChart`)
+
+```tsx
+import { VortexConeChart } from "vortex-charts";
+
+export function ConeChart({ candles, currentPrice, rangeHigh, rangeLow, expirationDate }) {
+  return (
+    <VortexConeChart
+      candles={candles}
+      currentPrice={currentPrice}
+      expirationDate={expirationDate}
+      dte={1}
+      rangeHigh={rangeHigh}
+      rangeLow={rangeLow}
+      height={280}
+    />
+  );
+}
+```
+
+---
+
+## 🎨 Theme Tokens
+
+You can import and inspect the standard VorteX design tokens:
+
+```ts
+import { VORTEX_THEME } from "vortex-charts";
+
+console.log(VORTEX_THEME.colors.spot);    // #38bdf8
+console.log(VORTEX_THEME.colors.bullish); // #10b981
+console.log(VORTEX_THEME.colors.bearish); // #f43f5e
+console.log(VORTEX_THEME.colors.vwap);    // #c084fc
+console.log(VORTEX_THEME.colors.neutral); // #eab308
+```
+
+---
+
+## 🛠️ Development & Building
+
+```bash
+# Clone
+git clone git@github.com:Misterwill3131/vortex-charts.git
+cd vortex-charts
+
+# Install
+npm install
+
+# Build
+npm run build
+```
+
+---
+
+## 🔒 License
+
+Proprietary & Confidential - VorteX Trading Systems © 2026.
