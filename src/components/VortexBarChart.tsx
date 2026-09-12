@@ -41,6 +41,9 @@ export interface VortexBarChartProps {
   showWatermark?: boolean;
 }
 
+// Stable default: prevents the options memo from invalidating every render.
+const EMPTY_REFERENCE_LINES: BarReferenceLine[] = [];
+
 function formatCompact(n: number): string {
   const a = Math.abs(n);
   if (a >= 1e9) return (n / 1e9).toFixed(1) + "B";
@@ -57,7 +60,7 @@ interface BarHoverState {
 
 export const VortexBarChart: React.FC<VortexBarChartProps> = ({
   data,
-  referenceLines = [],
+  referenceLines = EMPTY_REFERENCE_LINES,
   height = 300,
   className = "",
   posColor,

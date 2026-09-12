@@ -2,7 +2,7 @@
 
 > Official financial and quantitative charting library for the **VorteX** platform. Reusable across all VorteX applications, micro-frontends, and dashboards.
 
-[![NPM Version](https://img.shields.io/badge/version-0.7.2-cyan.svg)](https://github.com/Misterwill3131/vortex-charts)
+[![NPM Version](https://img.shields.io/badge/version-0.7.3-cyan.svg)](https://github.com/Misterwill3131/vortex-charts)
 [![VorteX Theme](https://img.shields.io/badge/theme-vortex--dark-purple.svg)](https://github.com/Misterwill3131/vortex-charts)
 [![License](https://img.shields.io/badge/license-UNLICENSED-rose.svg)](https://github.com/Misterwill3131/vortex-charts)
 

@@ -1296,9 +1296,10 @@ function useCrosshairSync({ group, localTime, onRemoteTime }) {
 // src/components/VortexCandleChart.tsx
 var import_jsx_runtime3 = require("react/jsx-runtime");
 var EMPTY_COLORS = {};
+var EMPTY_PRICE_LINES = [];
 var VortexCandleChart = ({
   candles,
-  priceLines = [],
+  priceLines = EMPTY_PRICE_LINES,
   swingHigh,
   swingLow,
   spotPrice,
@@ -1694,11 +1695,12 @@ function drawLineSeries(ctx, points, bounds, options) {
 // src/components/VortexRangeChart.tsx
 var import_jsx_runtime4 = require("react/jsx-runtime");
 var EMPTY_COLORS2 = {};
+var EMPTY_VWAP = [];
 var VortexRangeChart = ({
   candles,
   priorDay,
   premarket,
-  vwapSeries = [],
+  vwapSeries = EMPTY_VWAP,
   overlayMode = "all",
   height = 300,
   className = "",
@@ -2421,6 +2423,7 @@ function hexToRgba(hex, alpha) {
 
 // src/components/VortexBarChart.tsx
 var import_jsx_runtime6 = require("react/jsx-runtime");
+var EMPTY_REFERENCE_LINES = [];
 function formatCompact(n) {
   const a = Math.abs(n);
   if (a >= 1e9) return (n / 1e9).toFixed(1) + "B";
@@ -2430,7 +2433,7 @@ function formatCompact(n) {
 }
 var VortexBarChart = ({
   data,
-  referenceLines = [],
+  referenceLines = EMPTY_REFERENCE_LINES,
   height = 300,
   className = "",
   posColor,

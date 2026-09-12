@@ -35,12 +35,14 @@ export interface VortexRangeChartProps {
 // Stable fallback: keeps the merged-colors memo identity stable across
 // renders when no theme is passed (prevents full canvas redraws per render).
 const EMPTY_COLORS = {} as Record<string, never>;
+// Stable default: prevents memo invalidation on every render.
+const EMPTY_VWAP: VwapPoint[] = [];
 
 export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
   candles,
   priorDay,
   premarket,
-  vwapSeries = [],
+  vwapSeries = EMPTY_VWAP,
   overlayMode = "all",
   height = 300,
   className = "",

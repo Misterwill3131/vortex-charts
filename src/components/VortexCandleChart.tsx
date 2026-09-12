@@ -67,10 +67,13 @@ export interface VortexCandleChartProps {  candles: Candle[];
 // depends on mergedColors) fully redrew the candles at pointermove frame
 // rate — the root cause of the /account/levels FPS loss.
 const EMPTY_COLORS = {} as Record<string, never>;
+// Stable default: a destructured `= []` creates a new array each render,
+// invalidating every memo that lists priceLines as a dependency.
+const EMPTY_PRICE_LINES: PriceLine[] = [];
 
 export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
   candles,
-  priceLines = [],
+  priceLines = EMPTY_PRICE_LINES,
   swingHigh,
   swingLow,
   spotPrice,
