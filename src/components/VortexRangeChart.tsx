@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import type { Candle, PriorDayRange, PremarketRange, VwapPoint } from "../types";
-import { VORTEX_THEME } from "../theme/tokens";
+import { VORTEX_THEME, type VortexThemeOverride } from "../theme/tokens";
 import { computeBounds, indexToX, nearestTimeIndex } from "../engine/coordinates";
 import { drawGridAndAxes } from "../engine/grid";
 import { drawCandlesticks } from "../engine/candles";
@@ -29,7 +29,7 @@ export interface VortexRangeChartProps {
   showControls?: boolean;
   /** Share this id across charts to synchronize their crosshairs */
   crosshairSyncGroup?: string;
-  theme?: Partial<typeof VORTEX_THEME>;
+  theme?: VortexThemeOverride;
 }
 
 export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
@@ -50,10 +50,10 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
     return Array.from(new Map(candles.map((c) => [c.t, c])).values()).sort((a, b) => a.t - b.t);
   }, [candles]);
 
-  // ── Surface: container refs, width tracking, devicePixelRatio ──
+  // â”€â”€ Surface: container refs, width tracking, devicePixelRatio â”€â”€
   const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
 
-  // ── Viewport: zoom & pan state ──
+  // â”€â”€ Viewport: zoom & pan state â”€â”€
   const { viewport, setViewport, zoomIn, zoomOut, resetView, isZoomed, zoomLevel } =
     useChartViewport(sortedCandles.length, 12);
 
@@ -122,7 +122,7 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
     return points;
   }, [vwapSeries, visibleCandles, bounds]);
 
-  // ── Pointer interaction: hover crosshair, ruler, drag pan, wheel zoom ──
+  // â”€â”€ Pointer interaction: hover crosshair, ruler, drag pan, wheel zoom â”€â”€
   const { hover, ruler, isRulerToolActive, toggleRuler, clearRuler, pointerHandlers } =
     useChartPointer({
       canvasRef,
@@ -134,7 +134,7 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
       onViewportChange: setViewport,
     });
 
-  // ── Multi-chart crosshair synchronization ──
+  // â”€â”€ Multi-chart crosshair synchronization â”€â”€
   const [remoteHoverTime, setRemoteHoverTime] = useState<number | null>(null);
   useCrosshairSync({
     group: crosshairSyncGroup,
@@ -147,7 +147,7 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
     clearRuler();
   };
 
-  // ── Main canvas: redraw ONLY when data / viewport / size changes (not on hover) ──
+  // â”€â”€ Main canvas: redraw ONLY when data / viewport / size changes (not on hover) â”€â”€
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -216,7 +216,7 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
     }
   }, [containerWidth, height, dpr, bounds, visibleCandles, priorDay, premarket, vwapPoints, overlayMode, timeLabels, showWatermark, mergedColors, canvasRef]);
 
-  // ── Overlay canvas: lightweight crosshair + ruler, redrawn on hover only ──
+  // â”€â”€ Overlay canvas: lightweight crosshair + ruler, redrawn on hover only â”€â”€
   useEffect(() => {
     const canvas = overlayRef.current;
     if (!canvas) return;

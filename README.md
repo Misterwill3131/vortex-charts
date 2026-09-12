@@ -1,19 +1,19 @@
-# vortex-charts
+﻿# vortex-charts
 
 > Official financial and quantitative charting library for the **VorteX** platform. Reusable across all VorteX applications, micro-frontends, and dashboards.
 
-[![NPM Version](https://img.shields.io/badge/version-0.7.0-cyan.svg)](https://github.com/Misterwill3131/vortex-charts)
+[![NPM Version](https://img.shields.io/badge/version-0.7.1-cyan.svg)](https://github.com/Misterwill3131/vortex-charts)
 [![VorteX Theme](https://img.shields.io/badge/theme-vortex--dark-purple.svg)](https://github.com/Misterwill3131/vortex-charts)
 [![License](https://img.shields.io/badge/license-UNLICENSED-rose.svg)](https://github.com/Misterwill3131/vortex-charts)
 
 ---
 
-## ⚡ Highlights
+## âš¡ Highlights
 
 - **VorteX Dark Glassmorphic Design**: `#020616` dark background, `#38bdf8` (Spot Cyan), `#10b981` (Bullish Green), `#f43f5e` (Bearish Crimson), `#c084fc` (VWAP Lilac), `#eab308` (Gold / Target).
-- **High Performance**: Pure native Canvas 2D rendering engine — zero third-party charting dependencies (0% TradingView). Dual-canvas architecture (data layer + interaction overlay), `requestAnimationFrame`-coalesced pointer updates, conditional GPU backing-store reallocation, Pointer Events (mouse / touch / pen), memoized `measureText`.
+- **High Performance**: Pure native Canvas 2D rendering engine â€” zero third-party charting dependencies (0% TradingView). Dual-canvas architecture (data layer + interaction overlay), `requestAnimationFrame`-coalesced pointer updates, conditional GPU backing-store reallocation, Pointer Events (mouse / touch / pen), memoized `measureText`.
 - **Crisp on any display**: `devicePixelRatio`-aware rendering with live multi-monitor Retina re-detection, magnetized crosshair snapping to candle centers and wicks, rAF-coalesced resize tracking.
-- **Gap-aware time scale**: optional `timeScale` mode maps X to real timestamps — weekends and market pauses render as proportional empty space instead of false equidistant bars.
+- **Gap-aware time scale**: optional `timeScale` mode maps X to real timestamps â€” weekends and market pauses render as proportional empty space instead of false equidistant bars.
 - **Multi-chart crosshair sync**: pass the same `crosshairSyncGroup` id to several charts to synchronize their crosshairs (ghost line at the nearest bar, tolerance-aware).
 - **Client & SSR Ready**: Shipped with `"use client";` banners on both ESM/CJS bundles and complete TypeScript types.
 - **Dedicated Quantitative Components**:
@@ -24,7 +24,7 @@
 
 ---
 
-## 📦 Installation
+## ðŸ“¦ Installation
 
 Install directly from GitHub via npm:
 
@@ -40,7 +40,7 @@ pnpm add github:Misterwill3131/vortex-charts#main
 
 ---
 
-## 🚀 Quick Start
+## ðŸš€ Quick Start
 
 ### 1. Candlestick Chart (`VortexCandleChart`)
 
@@ -110,7 +110,7 @@ export function ConeChart({ candles, currentPrice, rangeHigh, rangeLow, expirati
 
 ---
 
-## 🎨 Theme Tokens
+## ðŸŽ¨ Theme Tokens
 
 You can import and inspect the standard VorteX design tokens:
 
@@ -126,7 +126,7 @@ console.log(VORTEX_THEME.colors.neutral); // #eab308
 
 ---
 
-## 🛠️ Development & Building
+## ðŸ› ï¸ Development & Building
 
 ```bash
 # Clone
@@ -142,6 +142,6 @@ npm run build
 
 ---
 
-## 🔒 License
+## ðŸ”’ License
 
-Proprietary & Confidential - VorteX Trading Systems © 2026.
+Proprietary & Confidential - VorteX Trading Systems Â© 2026.

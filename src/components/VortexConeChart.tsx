@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo } from "react";
+﻿import React, { useEffect, useMemo } from "react";
 import type { Candle, ExpectedMoveSpec, TargetRange } from "../types";
-import { VORTEX_THEME } from "../theme/tokens";
+import { VORTEX_THEME, type VortexThemeOverride } from "../theme/tokens";
 import { computeBounds, indexToX } from "../engine/coordinates";
 import { drawGridAndAxes } from "../engine/grid";
 import { drawLineSeries, type DataPoint } from "../engine/lines";
@@ -27,7 +27,7 @@ export interface VortexConeChartProps {
   height?: number;
   className?: string;
   showWatermark?: boolean;
-  theme?: Partial<typeof VORTEX_THEME>;
+  theme?: VortexThemeOverride;
 }
 
 export const VortexConeChart: React.FC<VortexConeChartProps> = ({
@@ -46,7 +46,7 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
   showWatermark = true,
   theme = {},
 }) => {
-  // ── Surface: container refs, width tracking, devicePixelRatio ──
+  // â”€â”€ Surface: container refs, width tracking, devicePixelRatio â”€â”€
   const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
 
   const mergedColors = useMemo(() => ({ ...VORTEX_THEME.colors, ...(theme.colors || {}) }), [theme]);
@@ -151,7 +151,7 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
     return list;
   }, [resolvedHigh, resolvedLow, resolvedSpot, mergedColors]);
 
-  // ── Pointer interaction: hover crosshair + Shift ruler (no pan/zoom on the cone) ──
+  // â”€â”€ Pointer interaction: hover crosshair + Shift ruler (no pan/zoom on the cone) â”€â”€
   const { hover, ruler, pointerHandlers } = useChartPointer({
     canvasRef,
     bounds,
@@ -161,7 +161,7 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
     panZoom: false,
   });
 
-  // ── Main canvas: redraw ONLY when data / size changes (not on hover) ──
+  // â”€â”€ Main canvas: redraw ONLY when data / size changes (not on hover) â”€â”€
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -232,7 +232,7 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
     }
   }, [containerWidth, height, dpr, bounds, histPoints, resolvedSpot, resolvedHigh, resolvedLow, totalSlots, priceLines, timeLabels, showWatermark, mergedColors, canvasRef]);
 
-  // ── Overlay canvas: lightweight crosshair + ruler, redrawn on hover only ──
+  // â”€â”€ Overlay canvas: lightweight crosshair + ruler, redrawn on hover only â”€â”€
   useEffect(() => {
     const canvas = overlayRef.current;
     if (!canvas) return;

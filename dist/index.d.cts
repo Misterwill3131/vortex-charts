@@ -64,6 +64,32 @@ declare const VORTEX_THEME: {
         readonly borderRadius: 16;
     };
 };
+/**
+ * Consumer-facing theme override. Unlike Partial<typeof VORTEX_THEME>, color
+ * values are plain strings so applications can inject their own palette
+ * (the const-asserted token object would otherwise narrow to literals).
+ */
+interface VortexThemeOverride {
+    colors?: {
+        spot?: string;
+        bullish?: string;
+        bearish?: string;
+        neutral?: string;
+        vwap?: string;
+        grid?: string;
+        border?: string;
+        text?: string;
+        textBright?: string;
+        cardBg?: string;
+    };
+    typography?: {
+        fontFamily?: string;
+        fontSize?: number;
+    };
+    layout?: {
+        borderRadius?: number;
+    };
+}
 
 interface ViewportPadding {
     top: number;
@@ -198,7 +224,7 @@ interface VortexCandleChartProps {
     initialVisibleBars?: number;
     /** Pin time labels to a market timezone, e.g. "America/New_York" */
     timeZone?: string;
-    theme?: Partial<typeof VORTEX_THEME>;
+    theme?: VortexThemeOverride;
 }
 declare const VortexCandleChart: React__default.FC<VortexCandleChartProps>;
 
@@ -214,7 +240,7 @@ interface VortexRangeChartProps {
     showControls?: boolean;
     /** Share this id across charts to synchronize their crosshairs */
     crosshairSyncGroup?: string;
-    theme?: Partial<typeof VORTEX_THEME>;
+    theme?: VortexThemeOverride;
 }
 declare const VortexRangeChart: React__default.FC<VortexRangeChartProps>;
 
@@ -232,7 +258,7 @@ interface VortexConeChartProps {
     height?: number;
     className?: string;
     showWatermark?: boolean;
-    theme?: Partial<typeof VORTEX_THEME>;
+    theme?: VortexThemeOverride;
 }
 declare const VortexConeChart: React__default.FC<VortexConeChartProps>;
 
@@ -580,4 +606,4 @@ declare function formatCandleTime(timestampMs: number, isIntraday?: boolean, tim
  */
 declare function formatPrice(price: number): string;
 
-export { type BarDatum, type BarReferenceLine, type Candle, type ChartZone, type CrosshairSyncEvent, type ExpectedMoveSpec, type PremarketRange, type PriceLine, type PriorDayRange, type RulerPoint, type RulerState, type TargetRange, type TimeScaleMapping, VORTEX_THEME, type ViewportState, VortexBarChart, type VortexBarChartProps, VortexCandleChart, type VortexCandleChartProps, VortexChartControls, type VortexChartControlsProps, VortexConeChart, type VortexConeChartProps, VortexRangeChart, type VortexRangeChartProps, VortexWatermarkOverlay, type VwapPoint, computeBarBounds, computeZoneRect, createTailViewport, createViewport, drawBarChart, drawBarHoverBand, drawChartZones, drawRulerOverlay, drawVortexWatermark, followViewport, formatCandleTime, formatChange, formatPrice, formatVolume, getVisibleCount, getZoomLevel, isViewportZoomed, measureTextWidth, nearestDatumIndex, nearestTimeIndex, panViewport, parseZoneColor, publishCrosshairSync, resetViewport, subscribeCrosshairSync, thinLabels, timeToX, useChartPointer, useChartSurface, useChartViewport, useCrosshairSync, viewportIndexToX, viewportXToIndex, xToTime, zoomViewport };
+export { type BarDatum, type BarReferenceLine, type Candle, type ChartZone, type CrosshairSyncEvent, type ExpectedMoveSpec, type PremarketRange, type PriceLine, type PriorDayRange, type RulerPoint, type RulerState, type TargetRange, type TimeScaleMapping, VORTEX_THEME, type ViewportState, VortexBarChart, type VortexBarChartProps, VortexCandleChart, type VortexCandleChartProps, VortexChartControls, type VortexChartControlsProps, VortexConeChart, type VortexConeChartProps, VortexRangeChart, type VortexRangeChartProps, type VortexThemeOverride, VortexWatermarkOverlay, type VwapPoint, computeBarBounds, computeZoneRect, createTailViewport, createViewport, drawBarChart, drawBarHoverBand, drawChartZones, drawRulerOverlay, drawVortexWatermark, followViewport, formatCandleTime, formatChange, formatPrice, formatVolume, getVisibleCount, getZoomLevel, isViewportZoomed, measureTextWidth, nearestDatumIndex, nearestTimeIndex, panViewport, parseZoneColor, publishCrosshairSync, resetViewport, subscribeCrosshairSync, thinLabels, timeToX, useChartPointer, useChartSurface, useChartViewport, useCrosshairSync, viewportIndexToX, viewportXToIndex, xToTime, zoomViewport };

@@ -61,7 +61,7 @@ export { useChartPointer } from "./hooks/useChartPointer";
 export { useCrosshairSync } from "./hooks/useCrosshairSync";
 
 // Theme
-export { VORTEX_THEME } from "./theme/tokens";
+export { VORTEX_THEME, type VortexThemeOverride } from "./theme/tokens";
 
 // Types
 export type {

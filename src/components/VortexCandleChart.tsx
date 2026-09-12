@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import type { Candle, PriceLine } from "../types";
-import { VORTEX_THEME } from "../theme/tokens";
+import { VORTEX_THEME, type VortexThemeOverride } from "../theme/tokens";
 import {
   computeBounds,
   indexToX,
@@ -59,7 +59,7 @@ export interface VortexCandleChartProps {
   initialVisibleBars?: number;
   /** Pin time labels to a market timezone, e.g. "America/New_York" */
   timeZone?: string;
-  theme?: Partial<typeof VORTEX_THEME>;
+  theme?: VortexThemeOverride;
 }
 
 export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
@@ -87,10 +87,10 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
     return Array.from(new Map(candles.map((c) => [c.t, c])).values()).sort((a, b) => a.t - b.t);
   }, [candles]);
 
-  // ── Surface: container refs, width tracking, devicePixelRatio ──
+  // â”€â”€ Surface: container refs, width tracking, devicePixelRatio â”€â”€
   const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
 
-  // ── Viewport: zoom & pan state ──
+  // â”€â”€ Viewport: zoom & pan state â”€â”€
   const { viewport, setViewport, zoomIn, zoomOut, resetView, isZoomed, zoomLevel } =
     useChartViewport(sortedCandles.length, 6, {
       mode: viewportMode,
@@ -202,7 +202,7 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
     return labels;
   }, [visibleCandles, containerWidth, chartBounds, isIntraday, timeScaleMapping, timeZone]);
 
-  // ── Pointer interaction: hover crosshair, ruler, drag pan, wheel zoom ──
+  // â”€â”€ Pointer interaction: hover crosshair, ruler, drag pan, wheel zoom â”€â”€
   const { hover, ruler, isRulerToolActive, toggleRuler, clearRuler, pointerHandlers } =
     useChartPointer({
       canvasRef,
@@ -215,7 +215,7 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
       onViewportChange: setViewport,
     });
 
-  // ── Multi-chart crosshair synchronization ──
+  // â”€â”€ Multi-chart crosshair synchronization â”€â”€
   const [remoteHoverTime, setRemoteHoverTime] = useState<number | null>(null);
   useCrosshairSync({
     group: crosshairSyncGroup,
@@ -228,7 +228,7 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
     clearRuler();
   };
 
-  // ── Main canvas: redraw ONLY when data / viewport / size changes (not on hover) ──
+  // â”€â”€ Main canvas: redraw ONLY when data / viewport / size changes (not on hover) â”€â”€
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -242,7 +242,7 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
     // 1. Grid & Axes
     drawGridAndAxes(ctx, chartBounds, timeLabels);
 
-    // 2. Zones behind candles (FVG gaps, imbalances…) — drawn before candles
+    // 2. Zones behind candles (FVG gaps, imbalancesâ€¦) â€” drawn before candles
     if (zones && zones.length > 0) {
       drawChartZones(ctx, chartBounds, zones, visibleCandles);
     }
@@ -268,7 +268,7 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
     }
   }, [containerWidth, height, dpr, chartBounds, visibleCandles, allLines, timeLabels, timeScaleMapping, zones, showWatermark, mergedColors, canvasRef]);
 
-  // ── Overlay canvas: lightweight crosshair + ruler, redrawn on hover only ──
+  // â”€â”€ Overlay canvas: lightweight crosshair + ruler, redrawn on hover only â”€â”€
   useEffect(() => {
     const canvas = overlayRef.current;
     if (!canvas) return;

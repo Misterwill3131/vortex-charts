@@ -19,3 +19,30 @@
     borderRadius: 16,
   },
 } as const;
+
+/**
+ * Consumer-facing theme override. Unlike Partial<typeof VORTEX_THEME>, color
+ * values are plain strings so applications can inject their own palette
+ * (the const-asserted token object would otherwise narrow to literals).
+ */
+export interface VortexThemeOverride {
+  colors?: {
+    spot?: string;
+    bullish?: string;
+    bearish?: string;
+    neutral?: string;
+    vwap?: string;
+    grid?: string;
+    border?: string;
+    text?: string;
+    textBright?: string;
+    cardBg?: string;
+  };
+  typography?: {
+    fontFamily?: string;
+    fontSize?: number;
+  };
+  layout?: {
+    borderRadius?: number;
+  };
+}
