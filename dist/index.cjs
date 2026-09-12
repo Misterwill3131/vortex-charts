@@ -22,12 +22,16 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var index_exports = {};
 __export(index_exports, {
   VORTEX_THEME: () => VORTEX_THEME,
+  VortexBarChart: () => VortexBarChart,
   VortexCandleChart: () => VortexCandleChart,
   VortexChartControls: () => VortexChartControls,
   VortexConeChart: () => VortexConeChart,
   VortexRangeChart: () => VortexRangeChart,
   VortexWatermarkOverlay: () => VortexWatermarkOverlay,
+  computeBarBounds: () => computeBarBounds,
   createViewport: () => createViewport,
+  drawBarChart: () => drawBarChart,
+  drawBarHoverBand: () => drawBarHoverBand,
   drawRulerOverlay: () => drawRulerOverlay,
   drawVortexWatermark: () => drawVortexWatermark,
   formatCandleTime: () => formatCandleTime,
@@ -38,11 +42,13 @@ __export(index_exports, {
   getZoomLevel: () => getZoomLevel,
   isViewportZoomed: () => isViewportZoomed,
   measureTextWidth: () => measureTextWidth,
+  nearestDatumIndex: () => nearestDatumIndex,
   nearestTimeIndex: () => nearestTimeIndex,
   panViewport: () => panViewport,
   publishCrosshairSync: () => publishCrosshairSync,
   resetViewport: () => resetViewport,
   subscribeCrosshairSync: () => subscribeCrosshairSync,
+  thinLabels: () => thinLabels,
   timeToX: () => timeToX,
   useChartPointer: () => useChartPointer,
   useChartSurface: () => useChartSurface,
@@ -2015,15 +2021,392 @@ var VortexConeChart = ({
     }
   );
 };
+
+// src/components/VortexBarChart.tsx
+var import_react8 = require("react");
+
+// src/engine/bars.ts
+function computeBarBounds(data, width, height, symmetric, padding = DEFAULT_PADDING) {
+  let maxAbs = 0;
+  let min = 0;
+  let max = 0;
+  for (const d of data) {
+    for (const v of [d.value, d.value2, d.overlay]) {
+      if (typeof v !== "number" || !isFinite(v)) continue;
+      const a = Math.abs(v);
+      if (a > maxAbs) maxAbs = a;
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+  }
+  maxAbs = maxAbs > 0 ? maxAbs * 1.08 : 1;
+  const minPrice = symmetric ? -maxAbs : min < 0 ? min * 1.08 : 0;
+  const maxPrice = symmetric ? maxAbs : max > 0 ? max * 1.08 : 0;
+  const span = maxPrice - minPrice || 1;
+  return {
+    minPrice,
+    maxPrice,
+    priceRange: span,
+    chartWidth: width,
+    chartHeight: height,
+    plotWidth: Math.max(width - padding.left - padding.right, 10),
+    plotHeight: Math.max(height - padding.top - padding.bottom, 10),
+    padding
+  };
+}
+function thinLabels(count, plotWidth, minGapPx = 56) {
+  const visible = new Array(count).fill(false);
+  if (count === 0) return visible;
+  const maxLabels = Math.max(1, Math.floor(plotWidth / minGapPx));
+  if (count <= maxLabels) {
+    return visible.fill(true);
+  }
+  const step = (count - 1) / (maxLabels - 1);
+  for (let i = 0; i < maxLabels; i++) {
+    visible[Math.round(i * step)] = true;
+  }
+  return visible;
+}
+function nearestDatumIndex(data, value) {
+  if (data.length === 0) return -1;
+  let best = 0;
+  let bestDiff = Infinity;
+  for (let i = 0; i < data.length; i++) {
+    const diff = Math.abs(data[i].x - value);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = i;
+    }
+  }
+  return best;
+}
+function drawBarChart(ctx, bounds, data, options) {
+  if (data.length === 0) return;
+  const { chartWidth, chartHeight, plotWidth, plotHeight, padding } = bounds;
+  const rightAxisX = chartWidth - padding.right;
+  const bottomAxisY = chartHeight - padding.bottom;
+  const yZero = padding.top + plotHeight * (bounds.maxPrice / bounds.priceRange);
+  const count = data.length;
+  const slotWidth = plotWidth / count;
+  const yOf = (value) => padding.top + plotHeight * (1 - (value - bounds.minPrice) / bounds.priceRange);
+  ctx.save();
+  ctx.setLineDash([3, 4]);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
+  ctx.fillStyle = "#71717a";
+  ctx.font = "10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  const step = bounds.priceRange / (options.tickCount + 1);
+  for (let i = 1; i <= options.tickCount; i++) {
+    const value = bounds.minPrice + i * step;
+    if (Math.abs(value) < step * 0.01) continue;
+    const y = Math.round(yOf(value));
+    ctx.beginPath();
+    ctx.moveTo(padding.left, y + 0.5);
+    ctx.lineTo(rightAxisX, y + 0.5);
+    ctx.stroke();
+    ctx.fillText(options.formatValue(value), rightAxisX + 8, y);
+  }
+  ctx.setLineDash([]);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padding.left, yZero + 0.5);
+  ctx.lineTo(rightAxisX, yZero + 0.5);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+  ctx.beginPath();
+  ctx.moveTo(rightAxisX + 0.5, padding.top);
+  ctx.lineTo(rightAxisX + 0.5, bottomAxisY);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(padding.left, bottomAxisY + 0.5);
+  ctx.lineTo(chartWidth, bottomAxisY + 0.5);
+  ctx.stroke();
+  const grouped = data.some((d) => typeof d.value2 === "number");
+  const barCount = grouped ? 2 : 1;
+  const barWidth = Math.max(2, Math.min(slotWidth * 0.72 / barCount, 28));
+  const groupWidth = barCount === 1 ? barWidth : barWidth * 2 + 2;
+  const gradPos = ctx.createLinearGradient(0, padding.top, 0, yZero);
+  gradPos.addColorStop(0, options.posGlow);
+  gradPos.addColorStop(1, hexToRgba(options.posColor, 0.25));
+  const gradNeg = ctx.createLinearGradient(0, yZero, 0, bottomAxisY);
+  gradNeg.addColorStop(0, options.negGlow);
+  gradNeg.addColorStop(1, hexToRgba(options.negColor, 0.25));
+  data.forEach((d, i) => {
+    const cx = indexToX(i, count, bounds);
+    const v1 = typeof d.value === "number" && isFinite(d.value) ? d.value : 0;
+    const y1 = yOf(v1);
+    const h1 = Math.abs(yZero - y1);
+    ctx.fillStyle = options.valueColor ?? (v1 >= 0 ? gradPos : gradNeg);
+    ctx.fillRect(Math.round(cx - groupWidth / 2), Math.min(y1, yZero), barWidth, Math.max(1, h1));
+    if (grouped) {
+      const v2 = typeof d.value2 === "number" && isFinite(d.value2) ? d.value2 : 0;
+      const y2 = yOf(v2);
+      const h2 = Math.abs(yZero - y2);
+      ctx.fillStyle = options.value2Color ?? options.negColor;
+      ctx.fillRect(Math.round(cx - groupWidth / 2 + barWidth + 2), Math.min(y2, yZero), barWidth, Math.max(1, h2));
+    }
+  });
+  const overlayPoints = [];
+  for (let i = 0; i < count; i++) {
+    const overlay = data[i].overlay;
+    if (typeof overlay === "number" && isFinite(overlay)) {
+      overlayPoints.push({ x: indexToX(i, count, bounds), price: overlay });
+    }
+  }
+  if (overlayPoints.length >= 2) {
+    ctx.strokeStyle = options.overlayColor;
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    overlayPoints.forEach((p, i) => {
+      const y = yOf(p.price);
+      if (i === 0) ctx.moveTo(p.x, y);
+      else ctx.lineTo(p.x, y);
+    });
+    ctx.stroke();
+    ctx.fillStyle = options.overlayColor;
+    overlayPoints.forEach((p) => {
+      ctx.beginPath();
+      ctx.arc(p.x, yOf(p.price), 3, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+  for (const ref of options.referenceLines) {
+    const idx = nearestDatumIndex(data, ref.value);
+    if (idx < 0) continue;
+    const x = Math.round(indexToX(idx, count, bounds));
+    ctx.setLineDash([4, 3]);
+    ctx.strokeStyle = ref.color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x + 0.5, padding.top);
+    ctx.lineTo(x + 0.5, yZero);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const text = ref.label;
+    const textW = measureTextWidth(ctx, text);
+    const pillW = textW + 8;
+    const pillX = Math.max(padding.left + 2, Math.min(rightAxisX - pillW - 2, x - pillW / 2));
+    ctx.fillStyle = ref.color;
+    ctx.beginPath();
+    ctx.roundRect(pillX, padding.top - 14, pillW, 12, 3);
+    ctx.fill();
+    ctx.fillStyle = "#020616";
+    ctx.font = "bold 9px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, pillX + pillW / 2, padding.top - 8);
+  }
+  ctx.font = "10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  ctx.fillStyle = "#71717a";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  const labelVisible = thinLabels(count, plotWidth);
+  data.forEach((d, i) => {
+    if (!labelVisible[i] || !d.label) return;
+    const x = indexToX(i, count, bounds);
+    if (x < padding.left || x > rightAxisX) return;
+    ctx.fillText(d.label, x, bottomAxisY + 7);
+  });
+  ctx.restore();
+}
+function drawBarHoverBand(ctx, bounds, index, count) {
+  if (index < 0 || index >= count || count === 0) return;
+  const { plotWidth, padding, chartHeight } = bounds;
+  const bottomAxisY = chartHeight - padding.bottom;
+  const slotWidth = plotWidth / count;
+  const cx = indexToX(index, count, bounds);
+  ctx.save();
+  ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
+  ctx.fillRect(cx - slotWidth / 2, padding.top, slotWidth, bottomAxisY - padding.top);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(Math.round(cx) + 0.5, padding.top);
+  ctx.lineTo(Math.round(cx) + 0.5, bottomAxisY);
+  ctx.stroke();
+  ctx.restore();
+}
+function hexToRgba(hex, alpha) {
+  const m = hex.replace("#", "");
+  if (m.length !== 6) return hex;
+  const r = parseInt(m.slice(0, 2), 16);
+  const g = parseInt(m.slice(2, 4), 16);
+  const b = parseInt(m.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// src/components/VortexBarChart.tsx
+var import_jsx_runtime6 = require("react/jsx-runtime");
+function formatCompact(n) {
+  const a = Math.abs(n);
+  if (a >= 1e9) return (n / 1e9).toFixed(1) + "B";
+  if (a >= 1e6) return (n / 1e6).toFixed(1) + "M";
+  if (a >= 1e3) return (n / 1e3).toFixed(0) + "K";
+  return formatPrice(n);
+}
+var VortexBarChart = ({
+  data,
+  referenceLines = [],
+  height = 300,
+  className = "",
+  posColor,
+  negColor,
+  posGlow,
+  negGlow,
+  valueColor,
+  value2Color,
+  overlayColor,
+  formatValue = formatCompact,
+  tickCount = 4,
+  symmetric = true,
+  tooltipContent,
+  showWatermark = true
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
+  const [hover, setHover] = (0, import_react8.useState)(null);
+  const rafRef = (0, import_react8.useRef)(0);
+  const merged = (0, import_react8.useMemo)(
+    () => ({
+      posColor: posColor ?? VORTEX_THEME.colors.bullish,
+      negColor: negColor ?? VORTEX_THEME.colors.bearish,
+      posGlow: posGlow ?? "#34d399",
+      negGlow: negGlow ?? "#fb7185",
+      overlayColor: overlayColor ?? VORTEX_THEME.colors.spot
+    }),
+    [posColor, negColor, posGlow, negGlow, overlayColor]
+  );
+  (0, import_react8.useEffect)(() => {
+    setHover(null);
+  }, [data]);
+  (0, import_react8.useEffect)(() => () => cancelAnimationFrame(rafRef.current), []);
+  const bounds = (0, import_react8.useMemo)(
+    () => computeBarBounds(data, containerWidth, height, symmetric),
+    [data, containerWidth, height, symmetric]
+  );
+  const options = (0, import_react8.useMemo)(
+    () => ({
+      ...merged,
+      valueColor,
+      value2Color,
+      formatValue,
+      tickCount,
+      referenceLines
+    }),
+    [merged, valueColor, value2Color, formatValue, tickCount, referenceLines]
+  );
+  (0, import_react8.useEffect)(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || data.length === 0) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawBarChart(ctx, bounds, data, options);
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, dpr, bounds, data, options, showWatermark, canvasRef]);
+  (0, import_react8.useEffect)(() => {
+    const canvas = overlayRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    if (hover && data.length > 0) {
+      drawBarHoverBand(ctx, bounds, hover.index, data.length);
+    }
+  }, [containerWidth, height, dpr, bounds, hover, data.length, overlayRef]);
+  const handlePointerMove = (e) => {
+    if (data.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const index = xToIndex(x, data.length, bounds);
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => setHover({ index, x, y }));
+  };
+  const handlePointerLeave = () => {
+    cancelAnimationFrame(rafRef.current);
+    setHover(null);
+  };
+  const hoveredDatum = hover != null ? data[hover.index] : null;
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none ${className}`,
+      style: { height },
+      children: [
+        data.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "flex h-full items-center justify-center text-xs text-zinc-500", children: "No data available" }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+            "canvas",
+            {
+              ref: canvasRef,
+              onPointerMove: handlePointerMove,
+              onPointerLeave: handlePointerLeave,
+              className: "block h-full w-full cursor-crosshair",
+              style: { touchAction: "none" }
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" })
+        ] }),
+        hover && hoveredDatum && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+          "div",
+          {
+            className: "pointer-events-none absolute z-20",
+            style: {
+              left: Math.min(Math.max(hover.x + 12, 4), Math.max(containerWidth - 200, 4)),
+              top: Math.max(hover.y - 12, 4),
+              transform: hover.x > containerWidth - 220 ? "translateX(-100%)" : void 0
+            },
+            children: tooltipContent ? tooltipContent(hoveredDatum, hover.index) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "rounded-xl border border-white/10 bg-[#0b0c10]/95 p-3 shadow-2xl backdrop-blur-md", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "border-b border-white/10 pb-1 text-xs font-bold tabular-nums text-white", children: hoveredDatum.label || `$${formatPrice(hoveredDatum.x)}` }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "mt-2 space-y-1 text-[11px] tabular-nums", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "flex justify-between gap-4", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "text-zinc-400", children: "Value:" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                    "span",
+                    {
+                      className: `font-bold ${hoveredDatum.value >= 0 ? "text-emerald-400" : "text-rose-400"}`,
+                      children: formatValue(hoveredDatum.value)
+                    }
+                  )
+                ] }),
+                typeof hoveredDatum.value2 === "number" && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "flex justify-between gap-4", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "text-zinc-400", children: "Secondary:" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "font-bold text-rose-400", children: formatValue(hoveredDatum.value2) })
+                ] }),
+                typeof hoveredDatum.overlay === "number" && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "flex justify-between gap-4 border-t border-white/10 pt-1", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "text-zinc-400", children: "Net:" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "font-bold text-sky-300", children: formatValue(hoveredDatum.overlay) })
+                ] })
+              ] })
+            ] })
+          }
+        )
+      ]
+    }
+  );
+};
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   VORTEX_THEME,
+  VortexBarChart,
   VortexCandleChart,
   VortexChartControls,
   VortexConeChart,
   VortexRangeChart,
   VortexWatermarkOverlay,
+  computeBarBounds,
   createViewport,
+  drawBarChart,
+  drawBarHoverBand,
   drawRulerOverlay,
   drawVortexWatermark,
   formatCandleTime,
@@ -2034,11 +2417,13 @@ var VortexConeChart = ({
   getZoomLevel,
   isViewportZoomed,
   measureTextWidth,
+  nearestDatumIndex,
   nearestTimeIndex,
   panViewport,
   publishCrosshairSync,
   resetViewport,
   subscribeCrosshairSync,
+  thinLabels,
   timeToX,
   useChartPointer,
   useChartSurface,

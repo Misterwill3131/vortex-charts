@@ -2,6 +2,7 @@
 export { VortexCandleChart, type VortexCandleChartProps } from "./components/VortexCandleChart";
 export { VortexRangeChart, type VortexRangeChartProps } from "./components/VortexRangeChart";
 export { VortexConeChart, type VortexConeChartProps } from "./components/VortexConeChart";
+export { VortexBarChart, type VortexBarChartProps } from "./components/VortexBarChart";
 export { VortexChartControls, type VortexChartControlsProps } from "./components/VortexChartControls";
 
 // Engine & Interactive Tools
@@ -24,6 +25,15 @@ export {
   type TimeScaleMapping,
 } from "./engine/coordinates";
 export { measureTextWidth } from "./engine/text-cache";
+export {
+  computeBarBounds,
+  thinLabels,
+  nearestDatumIndex,
+  drawBarChart,
+  drawBarHoverBand,
+  type BarDatum,
+  type BarReferenceLine,
+} from "./engine/bars";
 export { formatChange, formatVolume } from "./engine/interaction";
 
 // Branding & Watermark

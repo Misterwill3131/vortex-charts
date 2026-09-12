@@ -126,6 +126,133 @@ interface VortexConeChartProps {
 }
 declare const VortexConeChart: React__default.FC<VortexConeChartProps>;
 
+interface ViewportPadding {
+    top: number;
+    bottom: number;
+    left: number;
+    right: number;
+}
+interface ChartBounds {
+    minPrice: number;
+    maxPrice: number;
+    priceRange: number;
+    chartWidth: number;
+    chartHeight: number;
+    plotWidth: number;
+    plotHeight: number;
+    padding: ViewportPadding;
+}
+interface ViewportLike {
+    startIndex: number;
+    endIndex: number;
+    totalCount: number;
+}
+interface TimeScaleMapping {
+    /** Timestamp of the first visible candle */
+    tMin: number;
+    /** Timestamp of the last visible candle */
+    tMax: number;
+}
+declare function timeToX(t: number, scale: TimeScaleMapping, bounds: ChartBounds): number;
+declare function xToTime(x: number, scale: TimeScaleMapping, bounds: ChartBounds): number;
+/**
+ * Binary search over chronologically sorted items: returns the index whose
+ * timestamp is nearest to `target`. Returns -1 for an empty array.
+ */
+declare function nearestTimeIndex(items: {
+    t: number;
+}[], target: number): number;
+/**
+ * Maps a global data index to an X coordinate using the active viewport window.
+ */
+declare function viewportIndexToX(globalIndex: number, viewport: ViewportLike, bounds: ChartBounds): number;
+/**
+ * Maps an X coordinate on the chart to a global data index using the active viewport window.
+ */
+declare function viewportXToIndex(x: number, viewport: ViewportLike, bounds: ChartBounds): number;
+
+interface BarDatum {
+    /** Numeric X used to anchor vertical reference lines (e.g. strike) */
+    x: number;
+    /** Bottom axis label — set to "" to hide an individual label */
+    label: string;
+    /** Primary bar value */
+    value: number;
+    /** Optional grouped second bar (rendered side by side) */
+    value2?: number;
+    /** Optional line-overlay value (e.g. net curve) */
+    overlay?: number;
+}
+interface BarReferenceLine {
+    /** Numeric X matched against the nearest datum.x */
+    value: number;
+    label: string;
+    color: string;
+}
+interface BarChartOptions {
+    posColor: string;
+    negColor: string;
+    posGlow: string;
+    negGlow: string;
+    /** Fixed color for the primary bars (overrides sign-based coloring) */
+    valueColor?: string;
+    /** Fixed color for the grouped second bars */
+    value2Color?: string;
+    overlayColor: string;
+    formatValue: (n: number) => string;
+    tickCount: number;
+    referenceLines: BarReferenceLine[];
+}
+/**
+ * Builds chart bounds for a bar chart. Unlike computeBounds, this supports
+ * negative values: the domain is either symmetric around zero (default) or
+ * clamped to include zero on the min/max side.
+ */
+declare function computeBarBounds(data: BarDatum[], width: number, height: number, symmetric: boolean, padding?: ViewportPadding): ChartBounds;
+/**
+ * Thins bottom labels so they never overlap: keeps at most
+ * floor(plotWidth / minGapPx) evenly spaced labels (first + last preserved).
+ */
+declare function thinLabels(count: number, plotWidth: number, minGapPx?: number): boolean[];
+/**
+ * Maps a reference-line value to the nearest datum index (binary-free scan:
+ * reference lines are few, data can be large but x is sorted in practice).
+ */
+declare function nearestDatumIndex(data: BarDatum[], value: number): number;
+declare function drawBarChart(ctx: CanvasRenderingContext2D, bounds: ChartBounds, data: BarDatum[], options: BarChartOptions): void;
+/**
+ * Hover highlight band drawn on the overlay canvas (one slot wide).
+ */
+declare function drawBarHoverBand(ctx: CanvasRenderingContext2D, bounds: ChartBounds, index: number, count: number): void;
+
+interface VortexBarChartProps {
+    /** Bar data — one entry per slot (strike, expiration, …) */
+    data: BarDatum[];
+    /** Vertical reference lines anchored to the nearest datum.x */
+    referenceLines?: BarReferenceLine[];
+    height?: number;
+    className?: string;
+    /** Sign-based colors for the primary series (single-series mode) */
+    posColor?: string;
+    negColor?: string;
+    posGlow?: string;
+    negGlow?: string;
+    /** Fixed primary bar color — overrides sign-based coloring */
+    valueColor?: string;
+    /** Fixed grouped second-bar color */
+    value2Color?: string;
+    overlayColor?: string;
+    /** Right-axis value formatter (gridline labels) */
+    formatValue?: (n: number) => string;
+    tickCount?: number;
+    /** Symmetric Y domain around zero (GEX-style); false clamps to include 0 */
+    symmetric?: boolean;
+    /** Custom HTML tooltip content; defaults to a glassmorphism value card */
+    tooltipContent?: (datum: BarDatum, index: number) => React__default.ReactNode;
+    showWatermark?: boolean;
+}
+declare const VortexBarChart: React__default.FC<VortexBarChartProps>;
+
 interface VortexChartControlsProps {
     onZoomIn: () => void;
     onZoomOut: () => void;
@@ -184,51 +311,6 @@ declare function panViewport(viewport: ViewportState, deltaBars: number): Viewpo
  * Resets the viewport to show all candles.
  */
 declare function resetViewport(totalCount: number, minVisible?: number): ViewportState;
-
-interface ViewportPadding {
-    top: number;
-    bottom: number;
-    left: number;
-    right: number;
-}
-interface ChartBounds {
-    minPrice: number;
-    maxPrice: number;
-    priceRange: number;
-    chartWidth: number;
-    chartHeight: number;
-    plotWidth: number;
-    plotHeight: number;
-    padding: ViewportPadding;
-}
-interface ViewportLike {
-    startIndex: number;
-    endIndex: number;
-    totalCount: number;
-}
-interface TimeScaleMapping {
-    /** Timestamp of the first visible candle */
-    tMin: number;
-    /** Timestamp of the last visible candle */
-    tMax: number;
-}
-declare function timeToX(t: number, scale: TimeScaleMapping, bounds: ChartBounds): number;
-declare function xToTime(x: number, scale: TimeScaleMapping, bounds: ChartBounds): number;
-/**
- * Binary search over chronologically sorted items: returns the index whose
- * timestamp is nearest to `target`. Returns -1 for an empty array.
- */
-declare function nearestTimeIndex(items: {
-    t: number;
-}[], target: number): number;
-/**
- * Maps a global data index to an X coordinate using the active viewport window.
- */
-declare function viewportIndexToX(globalIndex: number, viewport: ViewportLike, bounds: ChartBounds): number;
-/**
- * Maps an X coordinate on the chart to a global data index using the active viewport window.
- */
-declare function viewportXToIndex(x: number, viewport: ViewportLike, bounds: ChartBounds): number;
 
 interface RulerPoint {
     x: number;
@@ -411,4 +493,4 @@ declare function formatCandleTime(timestampMs: number, isIntraday?: boolean): st
  */
 declare function formatPrice(price: number): string;
 
-export { type Candle, type CrosshairSyncEvent, type ExpectedMoveSpec, type PremarketRange, type PriceLine, type PriorDayRange, type RulerPoint, type RulerState, type TargetRange, type TimeScaleMapping, VORTEX_THEME, type ViewportState, VortexCandleChart, type VortexCandleChartProps, VortexChartControls, type VortexChartControlsProps, VortexConeChart, type VortexConeChartProps, VortexRangeChart, type VortexRangeChartProps, VortexWatermarkOverlay, type VwapPoint, createViewport, drawRulerOverlay, drawVortexWatermark, formatCandleTime, formatChange, formatPrice, formatVolume, getVisibleCount, getZoomLevel, isViewportZoomed, measureTextWidth, nearestTimeIndex, panViewport, publishCrosshairSync, resetViewport, subscribeCrosshairSync, timeToX, useChartPointer, useChartSurface, useChartViewport, useCrosshairSync, viewportIndexToX, viewportXToIndex, xToTime, zoomViewport };
+export { type BarDatum, type BarReferenceLine, type Candle, type CrosshairSyncEvent, type ExpectedMoveSpec, type PremarketRange, type PriceLine, type PriorDayRange, type RulerPoint, type RulerState, type TargetRange, type TimeScaleMapping, VORTEX_THEME, type ViewportState, VortexBarChart, type VortexBarChartProps, VortexCandleChart, type VortexCandleChartProps, VortexChartControls, type VortexChartControlsProps, VortexConeChart, type VortexConeChartProps, VortexRangeChart, type VortexRangeChartProps, VortexWatermarkOverlay, type VwapPoint, computeBarBounds, createViewport, drawBarChart, drawBarHoverBand, drawRulerOverlay, drawVortexWatermark, formatCandleTime, formatChange, formatPrice, formatVolume, getVisibleCount, getZoomLevel, isViewportZoomed, measureTextWidth, nearestDatumIndex, nearestTimeIndex, panViewport, publishCrosshairSync, resetViewport, subscribeCrosshairSync, thinLabels, timeToX, useChartPointer, useChartSurface, useChartViewport, useCrosshairSync, viewportIndexToX, viewportXToIndex, xToTime, zoomViewport };
