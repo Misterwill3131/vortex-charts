@@ -22,6 +22,11 @@ export { formatChange, formatVolume } from "./engine/interaction";
 // Branding & Watermark
 export { drawVortexWatermark, VortexWatermarkOverlay } from "./engine/watermark";
 
+// React Hooks (shared chart interaction engine)
+export { useChartSurface } from "./hooks/useChartSurface";
+export { useChartViewport } from "./hooks/useChartViewport";
+export { useChartPointer } from "./hooks/useChartPointer";
+
 // Theme
 export { VORTEX_THEME } from "./theme/tokens";
 

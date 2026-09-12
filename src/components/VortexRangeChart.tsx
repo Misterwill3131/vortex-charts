@@ -1,25 +1,19 @@
-import React, { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useMemo } from "react";
 import type { Candle, PriorDayRange, PremarketRange, VwapPoint } from "../types";
 import { VORTEX_THEME } from "../theme/tokens";
-import { computeBounds, indexToX, xToIndex, yToPrice } from "../engine/coordinates";
-import {
-  createViewport,
-  zoomViewport,
-  panViewport,
-  resetViewport,
-  isViewportZoomed,
-  getZoomLevel,
-  type ViewportState,
-} from "../engine/viewport";
+import { computeBounds, indexToX } from "../engine/coordinates";
 import { drawGridAndAxes } from "../engine/grid";
 import { drawCandlesticks } from "../engine/candles";
 import { drawSessionBox } from "../engine/boxes";
 import { drawLineSeries, type DataPoint } from "../engine/lines";
 import { drawVortexWatermark } from "../engine/watermark";
-import { drawCrosshair, formatChange, formatVolume, type HoverState } from "../engine/interaction";
-import { drawRulerOverlay, type RulerState } from "../engine/ruler";
+import { drawCrosshair, formatChange, formatVolume } from "../engine/interaction";
+import { drawRulerOverlay } from "../engine/ruler";
 import { VortexChartControls } from "./VortexChartControls";
 import { setupCanvasDpi } from "../engine/canvas";
+import { useChartSurface } from "../hooks/useChartSurface";
+import { useChartViewport } from "../hooks/useChartViewport";
+import { useChartPointer } from "../hooks/useChartPointer";
 import { formatCandleTime, formatPrice } from "../utils/chart-defaults";
 
 export interface VortexRangeChartProps {
@@ -47,50 +41,17 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
   showControls = true,
   theme = {},
 }) => {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [containerWidth, setContainerWidth] = useState<number>(600);
-  const [hover, setHover] = useState<HoverState | null>(null);
-
   // Deduplicate and sort intraday candles
   const sortedCandles = useMemo(() => {
-    return Array.from(
-      new Map(candles.map((c) => [c.t, c])).values()
-    ).sort((a, b) => a.t - b.t);
+    return Array.from(new Map(candles.map((c) => [c.t, c])).values()).sort((a, b) => a.t - b.t);
   }, [candles]);
 
-  // Interactive Viewport State (Zoom & Pan)
-  const [viewport, setViewport] = useState<ViewportState>(() =>
-    createViewport(sortedCandles.length, 12)
-  );
+  // ── Surface: container refs, width tracking, devicePixelRatio ──
+  const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
 
-  useEffect(() => {
-    setViewport((prev) => {
-      if (prev.totalCount === sortedCandles.length) return prev;
-      return createViewport(sortedCandles.length, 12);
-    });
-  }, [sortedCandles.length]);
-
-  // Ruler state
-  const [isRulerToolActive, setIsRulerToolActive] = useState<boolean>(false);
-  const [ruler, setRuler] = useState<RulerState>({
-    active: false,
-    startPoint: null,
-    currentPoint: null,
-  });
-
-  // Pan dragging ref
-  const dragRef = useRef<{
-    isDragging: boolean;
-    hasMoved: boolean;
-    startX: number;
-    initialViewport: ViewportState;
-  }>({
-    isDragging: false,
-    hasMoved: false,
-    startX: 0,
-    initialViewport: createViewport(0),
-  });
+  // ── Viewport: zoom & pan state ──
+  const { viewport, setViewport, zoomIn, zoomOut, resetView, isZoomed, zoomLevel } =
+    useChartViewport(sortedCandles.length, 12);
 
   const mergedColors = useMemo(() => ({ ...VORTEX_THEME.colors, ...(theme.colors || {}) }), [theme]);
 
@@ -102,35 +63,15 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
     return sortedCandles.slice(start, end + 1);
   }, [sortedCandles, viewport.startIndex, viewport.endIndex]);
 
-  // Handle ResizeObserver
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    setContainerWidth(el.clientWidth || 600);
-
-    const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.contentRect.width > 0) {
-          setContainerWidth(entry.contentRect.width);
-        }
-      }
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  // Compute adaptive price bounds (Auto-scale vertical price axis)
+  // Compute adaptive price bounds (auto-scale vertical price axis)
   const bounds = useMemo(() => {
     const prices: number[] = [];
     visibleCandles.forEach((c) => prices.push(c.high, c.low));
-
     if (priorDay && priorDay.high > 0) prices.push(priorDay.high, priorDay.low);
     if (premarket && premarket.high > 0) prices.push(premarket.high, premarket.low);
     vwapSeries.forEach((v) => {
       if (typeof v.vwap === "number" && v.vwap > 0) prices.push(v.vwap);
     });
-
     return computeBounds(prices, containerWidth, height);
   }, [visibleCandles, priorDay, premarket, vwapSeries, containerWidth, height]);
 
@@ -145,8 +86,7 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
     for (let i = 0; i < count; i += step) {
       const c = visibleCandles[i];
       const x = indexToX(i, count, bounds);
-      const text = formatCandleTime(c.t, true);
-      labels.push({ x, text });
+      labels.push({ x, text: formatCandleTime(c.t, true) });
     }
     return labels;
   }, [visibleCandles, containerWidth, bounds]);
@@ -178,50 +118,24 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
     return points;
   }, [vwapSeries, visibleCandles, bounds]);
 
-  // Interactive Viewport Controls
-  const handleZoomIn = useCallback(() => {
-    setViewport((prev) => zoomViewport(prev, 1.25, 0.5));
-  }, []);
-
-  const handleZoomOut = useCallback(() => {
-    setViewport((prev) => zoomViewport(prev, 0.8, 0.5));
-  }, []);
-
-  const handleReset = useCallback(() => {
-    setViewport(resetViewport(sortedCandles.length, 12));
-    setRuler({ active: false, startPoint: null, currentPoint: null });
-  }, [sortedCandles.length]);
-
-  const toggleRuler = useCallback(() => {
-    setIsRulerToolActive((prev) => {
-      if (prev) {
-        setRuler({ active: false, startPoint: null, currentPoint: null });
-      }
-      return !prev;
+  // ── Pointer interaction: hover crosshair, ruler, drag pan, wheel zoom ──
+  const { hover, ruler, isRulerToolActive, toggleRuler, clearRuler, pointerHandlers } =
+    useChartPointer({
+      canvasRef,
+      bounds,
+      visible: visibleCandles,
+      indexOffset: viewport.startIndex,
+      panZoom: true,
+      viewport,
+      onViewportChange: setViewport,
     });
-  }, []);
 
-  // Native non-passive Wheel listener for seamless trackpad / mouse-wheel zooming
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  const handleReset = () => {
+    resetView();
+    clearRuler();
+  };
 
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const rect = canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const anchorRatio = (mouseX - bounds.padding.left) / bounds.plotWidth;
-      const factor = e.deltaY < 0 ? 1.15 : 0.85;
-      setViewport((prev) => zoomViewport(prev, factor, anchorRatio));
-    };
-
-    canvas.addEventListener("wheel", onWheel, { passive: false });
-    return () => {
-      canvas.removeEventListener("wheel", onWheel);
-    };
-  }, [bounds.padding.left, bounds.plotWidth]);
-
-  // Render Canvas
+  // ── Main canvas: redraw ONLY when data / viewport / size changes (not on hover) ──
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -288,137 +202,31 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
     if (showWatermark) {
       drawVortexWatermark(ctx, bounds);
     }
+  }, [containerWidth, height, dpr, bounds, visibleCandles, priorDay, premarket, vwapPoints, overlayMode, timeLabels, showWatermark, mergedColors, canvasRef]);
 
-    // 6. Ruler measurement
+  // ── Overlay canvas: lightweight crosshair + ruler, redrawn on hover only ──
+  useEffect(() => {
+    const canvas = overlayRef.current;
+    if (!canvas) return;
+
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+
+    ctx.clearRect(0, 0, containerWidth, height);
+
+    // 1. Ruler measurement
     if (ruler.active) {
       drawRulerOverlay(ctx, bounds, ruler);
     }
 
-    // 7. Crosshair on hover
+    // 2. Crosshair on hover
     if (hover && hover.candle && !ruler.active) {
-      const cursorPrice = yToPrice(hover.mouseY, bounds);
-      const timeStr = formatCandleTime(hover.candle.t, true);
-      drawCrosshair(ctx, bounds, hover, cursorPrice, timeStr);
+      drawCrosshair(ctx, bounds, hover, formatCandleTime(hover.candle.t, true));
     }
-  }, [
-    containerWidth,
-    height,
-    bounds,
-    visibleCandles,
-    priorDay,
-    premarket,
-    vwapPoints,
-    overlayMode,
-    timeLabels,
-    hover,
-    ruler,
-    showWatermark,
-    mergedColors,
-  ]);
+  }, [containerWidth, height, dpr, bounds, hover, ruler, overlayRef]);
 
-  // Mouse / Touch Interaction Handlers
-  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas || visibleCandles.length === 0) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    const localIdx = xToIndex(mouseX, visibleCandles.length, bounds);
-    const candle = visibleCandles[localIdx] || null;
-    const price = yToPrice(mouseY, bounds);
-
-    if (e.shiftKey || isRulerToolActive) {
-      const point = {
-        x: mouseX,
-        y: mouseY,
-        price,
-        time: candle?.t,
-        index: viewport.startIndex + localIdx,
-      };
-      setRuler({
-        active: true,
-        startPoint: point,
-        currentPoint: point,
-      });
-    } else {
-      dragRef.current = {
-        isDragging: true,
-        hasMoved: false,
-        startX: mouseX,
-        initialViewport: viewport,
-      };
-    }
-  };
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas || visibleCandles.length === 0) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    const localIdx = xToIndex(mouseX, visibleCandles.length, bounds);
-    const candle = visibleCandles[localIdx] || null;
-    const price = yToPrice(mouseY, bounds);
-
-    if (ruler.active && ruler.startPoint) {
-      setRuler((prev) => ({
-        ...prev,
-        currentPoint: {
-          x: mouseX,
-          y: mouseY,
-          price,
-          time: candle?.t,
-          index: viewport.startIndex + localIdx,
-        },
-      }));
-      return;
-    }
-
-    if (dragRef.current.isDragging) {
-      const deltaX = mouseX - dragRef.current.startX;
-      if (Math.abs(deltaX) > 3) {
-        dragRef.current.hasMoved = true;
-      }
-      const barWidth = bounds.plotWidth / Math.max(1, visibleCandles.length);
-      const deltaBars = Math.round(deltaX / barWidth);
-      setViewport(panViewport(dragRef.current.initialViewport, deltaBars));
-      setHover(null);
-      return;
-    }
-
-    setHover({ mouseX, mouseY, index: localIdx, candle });
-  };
-
-  const handleMouseUp = () => {
-    if (dragRef.current.isDragging) {
-      dragRef.current.isDragging = false;
-    }
-  };
-
-  const handleMouseLeave = () => {
-    dragRef.current.isDragging = false;
-    setHover(null);
-  };
-
-  // Keyboard shortcut (Escape clears ruler)
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setRuler({ active: false, startPoint: null, currentPoint: null });
-        setIsRulerToolActive(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-
-  const isZoomed = isViewportZoomed(viewport);
-  const zoomLevel = getZoomLevel(viewport);
-
+  // Compute change metrics for hover tooltip
   const hoverMetrics = useMemo(() => {
     if (!hover?.candle) return null;
     const change = formatChange(hover.candle.open, hover.candle.close);
@@ -434,27 +242,23 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
     >
       <canvas
         ref={canvasRef}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseLeave}
+        {...pointerHandlers}
         onDoubleClick={handleReset}
-        className={`block w-full h-full ${
-          ruler.active || isRulerToolActive
-            ? "cursor-crosshair"
-            : dragRef.current.isDragging
-            ? "cursor-grabbing"
-            : isZoomed
-            ? "cursor-grab"
-            : "cursor-crosshair"
+        className={`block h-full w-full ${
+          ruler.active || isRulerToolActive ? "cursor-crosshair" : isZoomed ? "cursor-grab active:cursor-grabbing" : "cursor-crosshair"
         }`}
+        style={{ touchAction: "none" }}
+      />
+      <canvas
+        ref={overlayRef}
+        className="pointer-events-none absolute inset-0 block"
       />
 
       {/* Floating Interactive Controls */}
       {showControls && sortedCandles.length > 0 && (
         <VortexChartControls
-          onZoomIn={handleZoomIn}
-          onZoomOut={handleZoomOut}
+          onZoomIn={zoomIn}
+          onZoomOut={zoomOut}
           onReset={handleReset}
           isZoomed={isZoomed}
           zoomLevel={zoomLevel}

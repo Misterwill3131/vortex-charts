@@ -2,7 +2,7 @@
 
 > Official financial and quantitative charting library for the **VorteX** platform. Reusable across all VorteX applications, micro-frontends, and dashboards.
 
-[![NPM Version](https://img.shields.io/badge/version-0.1.0-cyan.svg)](https://github.com/Misterwill3131/vortex-charts)
+[![NPM Version](https://img.shields.io/badge/version-0.4.0-cyan.svg)](https://github.com/Misterwill3131/vortex-charts)
 [![VorteX Theme](https://img.shields.io/badge/theme-vortex--dark-purple.svg)](https://github.com/Misterwill3131/vortex-charts)
 [![License](https://img.shields.io/badge/license-UNLICENSED-rose.svg)](https://github.com/Misterwill3131/vortex-charts)
 
@@ -11,8 +11,9 @@
 ## ⚡ Highlights
 
 - **VorteX Dark Glassmorphic Design**: `#020616` dark background, `#38bdf8` (Spot Cyan), `#10b981` (Bullish Green), `#f43f5e` (Bearish Crimson), `#c084fc` (VWAP Lilac), `#eab308` (Gold / Target).
-- **High Performance**: Built on `lightweight-charts` v5.2 (Canvas 60fps), lightweight bundle, zero layout shift.
-- **Client & SSR Ready**: Shipped with `"use client";` directives and dual ESM/CJS bundles with complete TypeScript types.
+- **High Performance**: Pure native Canvas 2D rendering engine — zero third-party charting dependencies (0% TradingView). Dual-canvas architecture (data layer + interaction overlay), `requestAnimationFrame`-coalesced pointer updates, conditional GPU backing-store reallocation, Pointer Events (mouse / touch / pen).
+- **Crisp on any display**: `devicePixelRatio`-aware rendering with live multi-monitor Retina re-detection, magnetized crosshair snapping to candle centers and wicks, rAF-coalesced resize tracking.
+- **Client & SSR Ready**: Shipped with `"use client";` banners on both ESM/CJS bundles and complete TypeScript types.
 - **Dedicated Quantitative Components**:
   - `VortexCandleChart`: Multi-timeframe candlesticks with dynamic price lines, high/low swings, ATR bounds.
   - `VortexRangeChart`: Session structure visualization (Prior-Day range boxes, Premarket range boxes, and anchored VWAP curve).

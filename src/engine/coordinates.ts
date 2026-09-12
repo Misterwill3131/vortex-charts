@@ -29,9 +29,22 @@ export function computeBounds(
   height: number,
   padding: ViewportPadding = DEFAULT_PADDING
 ): ChartBounds {
-  const validPrices = prices.filter((p) => typeof p === "number" && !isNaN(p) && p > 0);
-  let min = validPrices.length > 0 ? Math.min(...validPrices) : 100;
-  let max = validPrices.length > 0 ? Math.max(...validPrices) : 105;
+  const validPrices = prices.filter(
+    (p) => typeof p === "number" && !isNaN(p) && isFinite(p) && p > 0
+  );
+
+  // Reduce instead of Math.min(...spread): spread arguments overflow the
+  // call stack beyond ~65k items, which crashes on large series.
+  let min = Infinity;
+  let max = -Infinity;
+  for (const p of validPrices) {
+    if (p < min) min = p;
+    if (p > max) max = p;
+  }
+  if (!isFinite(min) || !isFinite(max)) {
+    min = 100;
+    max = 105;
+  }
 
   if (min === max) {
     min *= 0.98;

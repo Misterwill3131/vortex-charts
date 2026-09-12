@@ -1,14 +1,16 @@
-import React, { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useMemo } from "react";
 import type { Candle, ExpectedMoveSpec, TargetRange } from "../types";
 import { VORTEX_THEME } from "../theme/tokens";
-import { computeBounds, indexToX, xToIndex, yToPrice } from "../engine/coordinates";
+import { computeBounds, indexToX } from "../engine/coordinates";
 import { drawGridAndAxes } from "../engine/grid";
 import { drawLineSeries, type DataPoint } from "../engine/lines";
 import { drawPriceLines } from "../engine/price-lines";
 import { drawVortexWatermark } from "../engine/watermark";
-import { drawCrosshair, type HoverState } from "../engine/interaction";
-import { drawRulerOverlay, type RulerState } from "../engine/ruler";
+import { drawCrosshair } from "../engine/interaction";
+import { drawRulerOverlay } from "../engine/ruler";
 import { setupCanvasDpi } from "../engine/canvas";
+import { useChartSurface } from "../hooks/useChartSurface";
+import { useChartPointer } from "../hooks/useChartPointer";
 import { formatCandleTime, formatPrice } from "../utils/chart-defaults";
 
 export interface VortexConeChartProps {
@@ -36,7 +38,7 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
   expirationDate,
   expectedMove,
   targetRange,
-  dte = 1,
+  dte,
   rangeHigh,
   rangeLow,
   height = 280,
@@ -44,17 +46,8 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
   showWatermark = true,
   theme = {},
 }) => {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [containerWidth, setContainerWidth] = useState<number>(600);
-  const [hover, setHover] = useState<HoverState | null>(null);
-
-  // Ruler state
-  const [ruler, setRuler] = useState<RulerState>({
-    active: false,
-    startPoint: null,
-    currentPoint: null,
-  });
+  // ── Surface: container refs, width tracking, devicePixelRatio ──
+  const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
 
   const mergedColors = useMemo(() => ({ ...VORTEX_THEME.colors, ...(theme.colors || {}) }), [theme]);
 
@@ -76,24 +69,6 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
     rangeLow ?? targetRange?.low ?? (expectedMove ? resolvedSpot - expectedMove.moveAbs : 0);
   const resolvedExpDate = expirationDate || expectedMove?.expiration || "Expiry";
   const resolvedDte = dte ?? expectedMove?.dte ?? 1;
-
-  // Handle ResizeObserver
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    setContainerWidth(el.clientWidth || 600);
-
-    const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.contentRect.width > 0) {
-          setContainerWidth(entry.contentRect.width);
-        }
-      }
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
   // Total points count including future projection steps
   const futureStepCount = Math.max(2, Math.min(6, resolvedDte));
@@ -176,7 +151,17 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
     return list;
   }, [resolvedHigh, resolvedLow, resolvedSpot, mergedColors]);
 
-  // Render Canvas
+  // ── Pointer interaction: hover crosshair + Shift ruler (no pan/zoom on the cone) ──
+  const { hover, ruler, pointerHandlers } = useChartPointer({
+    canvasRef,
+    bounds,
+    visible: resolvedCandles,
+    // Hit-testing spans history + future projection slots
+    slotCount: totalSlots,
+    panZoom: false,
+  });
+
+  // ── Main canvas: redraw ONLY when data / size changes (not on hover) ──
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -245,109 +230,29 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
     if (showWatermark) {
       drawVortexWatermark(ctx, bounds);
     }
+  }, [containerWidth, height, dpr, bounds, histPoints, resolvedSpot, resolvedHigh, resolvedLow, totalSlots, priceLines, timeLabels, showWatermark, mergedColors, canvasRef]);
 
-    // 6. Ruler measurement
+  // ── Overlay canvas: lightweight crosshair + ruler, redrawn on hover only ──
+  useEffect(() => {
+    const canvas = overlayRef.current;
+    if (!canvas) return;
+
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+
+    ctx.clearRect(0, 0, containerWidth, height);
+
+    // 1. Ruler measurement
     if (ruler.active) {
       drawRulerOverlay(ctx, bounds, ruler);
     }
 
-    // 7. Crosshair on hover
+    // 2. Crosshair on hover (historical zone only)
     if (hover && hover.candle && !ruler.active) {
-      const cursorPrice = yToPrice(hover.mouseY, bounds);
-      const timeStr = formatCandleTime(hover.candle.t, false);
-      drawCrosshair(ctx, bounds, hover, cursorPrice, timeStr);
+      drawCrosshair(ctx, bounds, hover, formatCandleTime(hover.candle.t, false));
     }
-  }, [
-    containerWidth,
-    height,
-    bounds,
-    histPoints,
-    resolvedSpot,
-    resolvedHigh,
-    resolvedLow,
-    totalSlots,
-    priceLines,
-    timeLabels,
-    hover,
-    ruler,
-    showWatermark,
-    mergedColors,
-  ]);
-
-  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!e.shiftKey) return;
-    const canvas = canvasRef.current;
-    if (!canvas || resolvedCandles.length === 0) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    const idx = xToIndex(mouseX, totalSlots, bounds);
-    const candle = resolvedCandles[idx] || null;
-    const price = yToPrice(mouseY, bounds);
-
-    const point = {
-      x: mouseX,
-      y: mouseY,
-      price,
-      time: candle?.t,
-      index: idx,
-    };
-    setRuler({
-      active: true,
-      startPoint: point,
-      currentPoint: point,
-    });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas || resolvedCandles.length === 0) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    const idx = xToIndex(mouseX, totalSlots, bounds);
-    const candle = resolvedCandles[idx] || null;
-    const price = yToPrice(mouseY, bounds);
-
-    if (ruler.active && ruler.startPoint) {
-      setRuler((prev) => ({
-        ...prev,
-        currentPoint: {
-          x: mouseX,
-          y: mouseY,
-          price,
-          time: candle?.t,
-          index: idx,
-        },
-      }));
-      return;
-    }
-
-    setHover({ mouseX, mouseY, index: idx, candle });
-  };
-
-  const handleMouseUp = () => {
-    // ruler stays active until clicked again
-  };
-
-  const handleMouseLeave = () => {
-    setHover(null);
-  };
-
-  // Keyboard shortcut (Escape clears ruler)
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setRuler({ active: false, startPoint: null, currentPoint: null });
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [containerWidth, height, dpr, bounds, hover, ruler, overlayRef]);
 
   const spotDiff = useMemo(() => {
     if (!hover?.candle || resolvedSpot <= 0) return null;
@@ -366,19 +271,16 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
       ref={containerRef}
       className={`relative w-full overflow-hidden select-none group ${className}`}
       style={{ height }}
-      onClick={() => {
-        if (ruler.active && !ruler.startPoint) {
-          setRuler({ active: false, startPoint: null, currentPoint: null });
-        }
-      }}
     >
       <canvas
         ref={canvasRef}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseLeave}
-        className="cursor-crosshair block w-full h-full"
+        {...pointerHandlers}
+        className="cursor-crosshair block h-full w-full"
+        style={{ touchAction: "none" }}
+      />
+      <canvas
+        ref={overlayRef}
+        className="pointer-events-none absolute inset-0 block"
       />
 
       {/* Floating Glassmorphism Tooltip */}

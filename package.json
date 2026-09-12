@@ -1,6 +1,6 @@
 {
   "name": "vortex-charts",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Official VorteX proprietary financial & quantitative charting library (Pure Canvas 2D Interactive)",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -25,9 +25,6 @@
   "peerDependencies": {
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0"
-  },
-  "dependencies": {
-    "lucide-react": "^1.14.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

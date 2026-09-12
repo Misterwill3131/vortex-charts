@@ -1,4 +1,5 @@
-import React from 'react';
+import * as React from 'react';
+import React__default from 'react';
 
 type Candle = {
     t: number;
@@ -82,7 +83,7 @@ interface VortexCandleChartProps {
     showControls?: boolean;
     theme?: Partial<typeof VORTEX_THEME>;
 }
-declare const VortexCandleChart: React.FC<VortexCandleChartProps>;
+declare const VortexCandleChart: React__default.FC<VortexCandleChartProps>;
 
 interface VortexRangeChartProps {
     candles: Candle[];
@@ -96,7 +97,7 @@ interface VortexRangeChartProps {
     showControls?: boolean;
     theme?: Partial<typeof VORTEX_THEME>;
 }
-declare const VortexRangeChart: React.FC<VortexRangeChartProps>;
+declare const VortexRangeChart: React__default.FC<VortexRangeChartProps>;
 
 interface VortexConeChartProps {
     candles?: Candle[];
@@ -114,7 +115,7 @@ interface VortexConeChartProps {
     showWatermark?: boolean;
     theme?: Partial<typeof VORTEX_THEME>;
 }
-declare const VortexConeChart: React.FC<VortexConeChartProps>;
+declare const VortexConeChart: React__default.FC<VortexConeChartProps>;
 
 interface VortexChartControlsProps {
     onZoomIn: () => void;
@@ -126,7 +127,7 @@ interface VortexChartControlsProps {
     onToggleRuler?: () => void;
     className?: string;
 }
-declare const VortexChartControls: React.FC<VortexChartControlsProps>;
+declare const VortexChartControls: React__default.FC<VortexChartControlsProps>;
 
 /**
  * Viewport state and calculations for horizontal time-series zooming & panning.
@@ -219,6 +220,14 @@ interface RulerState {
 }
 declare function drawRulerOverlay(ctx: CanvasRenderingContext2D, bounds: ChartBounds, ruler: RulerState): void;
 
+interface HoverState {
+    mouseX: number;
+    mouseY: number;
+    /** Magnetically snapped X (center of the hovered candle) — keeps the crosshair and the tooltip on the same bar */
+    snapX: number;
+    index: number;
+    candle: Candle | null;
+}
 /**
  * Formats a raw volume count into readable shorthand (e.g. 1.45M, 240K).
  */
@@ -240,11 +249,94 @@ declare function drawVortexWatermark(ctx: CanvasRenderingContext2D, bounds: Char
 /**
  * Reusable React component for interactive VorteXbot.app watermark
  */
-declare const VortexWatermarkOverlay: React.FC<{
+declare const VortexWatermarkOverlay: React__default.FC<{
     className?: string;
 }>;
 
+/**
+ * Owns the chart DOM surface: container, main canvas, overlay canvas,
+ * container width tracking and devicePixelRatio awareness.
+ */
+declare function useChartSurface(): {
+    containerRef: React.RefObject<HTMLDivElement | null>;
+    canvasRef: React.RefObject<HTMLCanvasElement | null>;
+    overlayRef: React.RefObject<HTMLCanvasElement | null>;
+    containerWidth: number;
+    dpr: number;
+};
+
+/**
+ * Encapsulates interactive viewport state (zoom & pan) with automatic
+ * resynchronization when the underlying series length changes.
+ */
+declare function useChartViewport(totalCount: number, minVisible?: number): {
+    viewport: ViewportState;
+    setViewport: React.Dispatch<React.SetStateAction<ViewportState>>;
+    zoomIn: () => void;
+    zoomOut: () => void;
+    resetView: () => void;
+    pan: (deltaBars: number) => void;
+    isZoomed: boolean;
+    zoomLevel: number;
+};
+
+interface UseChartPointerOptions {
+    /** Main canvas (receives the pointer events) */
+    canvasRef: React__default.RefObject<HTMLCanvasElement | null>;
+    /** Current chart bounds (kept fresh through closures, refs for native listeners) */
+    bounds: ChartBounds;
+    /** Visible candle slice used for hit-testing */
+    visible: Candle[];
+    /**
+     * Total number of X slots for hit-testing. Defaults to `visible.length`.
+     * The cone chart passes history + future projection slots.
+     */
+    slotCount?: number;
+    /** Global index of the first visible candle (viewport pan offset) */
+    indexOffset?: number;
+    /** Enable wheel zoom + drag pan (candle & range charts) */
+    panZoom?: boolean;
+    /** Current viewport state — required when panZoom is enabled */
+    viewport?: ViewportState;
+    /** Viewport setter — required when panZoom is enabled */
+    onViewportChange?: (viewport: ViewportState) => void;
+}
+/**
+ * Centralizes pointer-driven interaction: hover crosshair state, ruler
+ * measurement, drag panning and wheel zooming.
+ *
+ * - Uses Pointer Events (mouse, touch and pen in a single API).
+ * - Coalesces hover / ruler / pan updates through requestAnimationFrame so
+ *   at most one state update per display frame reaches React.
+ * - Snaps hover to candle centers (magnetized crosshair).
+ */
+declare function useChartPointer({ canvasRef, bounds, visible, slotCount, indexOffset, panZoom, viewport, onViewportChange, }: UseChartPointerOptions): {
+    hover: HoverState | null;
+    ruler: RulerState;
+    isRulerToolActive: boolean;
+    toggleRuler: () => void;
+    clearRuler: () => void;
+    pointerHandlers: {
+        onPointerDown: (e: React__default.PointerEvent<HTMLCanvasElement>) => void;
+        onPointerMove: (e: React__default.PointerEvent<HTMLCanvasElement>) => void;
+        onPointerUp: () => void;
+        onPointerCancel: () => void;
+        onPointerLeave: () => void;
+    };
+};
+
+/**
+ * Formats a candle timestamp. Intraday candles show local HH:mm, daily
+ * candles show the LOCAL calendar date (toLocaleDateString) — the previous
+ * toISOString implementation shifted dates by one day for non-UTC timezones.
+ */
 declare function formatCandleTime(timestampMs: number, isIntraday?: boolean): string;
+/**
+ * Adaptive price formatting:
+ * - >= 10 000  : grouped thousands, 2 decimals (indices, BTC)
+ * - >= 0.01    : fixed 2 decimals (equities)
+ * - < 0.01     : 4 significant digits (sub-cent crypto assets)
+ */
 declare function formatPrice(price: number): string;
 
-export { type Candle, type ExpectedMoveSpec, type PremarketRange, type PriceLine, type PriorDayRange, type RulerPoint, type RulerState, type TargetRange, VORTEX_THEME, type ViewportState, VortexCandleChart, type VortexCandleChartProps, VortexChartControls, type VortexChartControlsProps, VortexConeChart, type VortexConeChartProps, VortexRangeChart, type VortexRangeChartProps, VortexWatermarkOverlay, type VwapPoint, createViewport, drawRulerOverlay, drawVortexWatermark, formatCandleTime, formatChange, formatPrice, formatVolume, getVisibleCount, getZoomLevel, isViewportZoomed, panViewport, resetViewport, viewportIndexToX, viewportXToIndex, zoomViewport };
+export { type Candle, type ExpectedMoveSpec, type PremarketRange, type PriceLine, type PriorDayRange, type RulerPoint, type RulerState, type TargetRange, VORTEX_THEME, type ViewportState, VortexCandleChart, type VortexCandleChartProps, VortexChartControls, type VortexChartControlsProps, VortexConeChart, type VortexConeChartProps, VortexRangeChart, type VortexRangeChartProps, VortexWatermarkOverlay, type VwapPoint, createViewport, drawRulerOverlay, drawVortexWatermark, formatCandleTime, formatChange, formatPrice, formatVolume, getVisibleCount, getZoomLevel, isViewportZoomed, panViewport, resetViewport, useChartPointer, useChartSurface, useChartViewport, viewportIndexToX, viewportXToIndex, zoomViewport };

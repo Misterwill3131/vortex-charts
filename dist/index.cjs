@@ -39,6 +39,9 @@ __export(index_exports, {
   isViewportZoomed: () => isViewportZoomed,
   panViewport: () => panViewport,
   resetViewport: () => resetViewport,
+  useChartPointer: () => useChartPointer,
+  useChartSurface: () => useChartSurface,
+  useChartViewport: () => useChartViewport,
   viewportIndexToX: () => viewportIndexToX,
   viewportXToIndex: () => viewportXToIndex,
   zoomViewport: () => zoomViewport
@@ -46,7 +49,7 @@ __export(index_exports, {
 module.exports = __toCommonJS(index_exports);
 
 // src/components/VortexCandleChart.tsx
-var import_react = require("react");
+var import_react4 = require("react");
 
 // src/theme/tokens.ts
 var VORTEX_THEME = {
@@ -84,9 +87,19 @@ var DEFAULT_PADDING = {
   right: 64
 };
 function computeBounds(prices, width, height, padding = DEFAULT_PADDING) {
-  const validPrices = prices.filter((p) => typeof p === "number" && !isNaN(p) && p > 0);
-  let min = validPrices.length > 0 ? Math.min(...validPrices) : 100;
-  let max = validPrices.length > 0 ? Math.max(...validPrices) : 105;
+  const validPrices = prices.filter(
+    (p) => typeof p === "number" && !isNaN(p) && isFinite(p) && p > 0
+  );
+  let min = Infinity;
+  let max = -Infinity;
+  for (const p of validPrices) {
+    if (p < min) min = p;
+    if (p > max) max = p;
+  }
+  if (!isFinite(min) || !isFinite(max)) {
+    min = 100;
+    max = 105;
+  }
   if (min === max) {
     min *= 0.98;
     max *= 1.02;
@@ -145,79 +158,6 @@ function viewportXToIndex(x, viewport, bounds) {
   return Math.max(0, Math.min(viewport.totalCount - 1, viewport.startIndex + localIndex));
 }
 
-// src/engine/viewport.ts
-function createViewport(totalCount, minVisible = 8) {
-  const safeCount = Math.max(0, totalCount);
-  return {
-    startIndex: 0,
-    endIndex: Math.max(0, safeCount - 1),
-    totalCount: safeCount,
-    minVisible: Math.min(minVisible, Math.max(1, safeCount))
-  };
-}
-function isViewportZoomed(viewport) {
-  if (viewport.totalCount <= 0) return false;
-  return viewport.startIndex > 0 || viewport.endIndex < viewport.totalCount - 1;
-}
-function getZoomLevel(viewport) {
-  const visibleCount = getVisibleCount(viewport);
-  if (visibleCount <= 0 || viewport.totalCount <= 0) return 1;
-  const ratio = viewport.totalCount / visibleCount;
-  return Math.round(ratio * 10) / 10;
-}
-function getVisibleCount(viewport) {
-  if (viewport.totalCount <= 0) return 0;
-  return Math.max(1, viewport.endIndex - viewport.startIndex + 1);
-}
-function zoomViewport(viewport, factor, anchorRatio = 0.5) {
-  const { totalCount, minVisible, startIndex, endIndex } = viewport;
-  if (totalCount <= minVisible) return viewport;
-  const currentSpan = endIndex - startIndex + 1;
-  const targetSpan = Math.round(currentSpan / factor);
-  const newSpan = Math.max(minVisible, Math.min(totalCount, targetSpan));
-  if (newSpan === currentSpan) return viewport;
-  const spanDelta = newSpan - currentSpan;
-  const clampedAnchor = Math.max(0, Math.min(1, anchorRatio));
-  let newStart = Math.round(startIndex - spanDelta * clampedAnchor);
-  let newEnd = newStart + newSpan - 1;
-  if (newStart < 0) {
-    newEnd += -newStart;
-    newStart = 0;
-  }
-  if (newEnd >= totalCount) {
-    const overflow = newEnd - (totalCount - 1);
-    newStart = Math.max(0, newStart - overflow);
-    newEnd = totalCount - 1;
-  }
-  return {
-    ...viewport,
-    startIndex: Math.max(0, newStart),
-    endIndex: Math.min(totalCount - 1, newEnd)
-  };
-}
-function panViewport(viewport, deltaBars) {
-  const { totalCount, startIndex, endIndex } = viewport;
-  if (totalCount <= 0 || deltaBars === 0) return viewport;
-  const span = endIndex - startIndex + 1;
-  let newStart = startIndex - deltaBars;
-  let newEnd = newStart + span - 1;
-  if (newStart < 0) {
-    newStart = 0;
-    newEnd = Math.min(totalCount - 1, span - 1);
-  } else if (newEnd >= totalCount) {
-    newEnd = totalCount - 1;
-    newStart = Math.max(0, totalCount - span);
-  }
-  return {
-    ...viewport,
-    startIndex: newStart,
-    endIndex: newEnd
-  };
-}
-function resetViewport(totalCount, minVisible = 8) {
-  return createViewport(totalCount, minVisible);
-}
-
 // src/utils/chart-defaults.ts
 function formatCandleTime(timestampMs, isIntraday = false) {
   const d = new Date(timestampMs);
@@ -228,11 +168,24 @@ function formatCandleTime(timestampMs, isIntraday = false) {
       hour12: false
     });
   }
-  return d.toISOString().slice(0, 10);
+  return d.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
 }
 function formatPrice(price) {
-  if (isNaN(price)) return "\u2014";
-  return price.toFixed(2);
+  if (isNaN(price) || !isFinite(price)) return "\u2014";
+  const abs = Math.abs(price);
+  if (abs >= 1e4) {
+    return price.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  }
+  if (abs >= 0.01) return price.toFixed(2);
+  if (abs === 0) return "0.00";
+  return price.toPrecision(4);
 }
 
 // src/engine/grid.ts
@@ -415,25 +368,40 @@ var VortexWatermarkOverlay = ({ className = "" }) => {
 };
 
 // src/engine/interaction.ts
-function drawCrosshair(ctx, bounds, hover, cursorPrice, timeText) {
+var WICK_MAGNET_PX = 8;
+function drawCrosshair(ctx, bounds, hover, timeText) {
   const { chartWidth, chartHeight, padding } = bounds;
   const rightAxisX = chartWidth - padding.right;
   const bottomAxisY = chartHeight - padding.bottom;
-  const { mouseX, mouseY } = hover;
-  if (mouseX < padding.left || mouseX > rightAxisX || mouseY < padding.top || mouseY > bottomAxisY) {
+  const { snapX, mouseY, candle } = hover;
+  if (snapX < padding.left || snapX > rightAxisX || mouseY < padding.top || mouseY > bottomAxisY) {
     return;
   }
+  let crossY = mouseY;
+  let snappedToWick = false;
+  if (candle) {
+    const yHigh = priceToY(candle.high, bounds);
+    const yLow = priceToY(candle.low, bounds);
+    if (Math.abs(mouseY - yHigh) <= WICK_MAGNET_PX) {
+      crossY = yHigh;
+      snappedToWick = true;
+    } else if (Math.abs(mouseY - yLow) <= WICK_MAGNET_PX) {
+      crossY = yLow;
+      snappedToWick = true;
+    }
+  }
+  const cursorPrice = yToPrice(crossY, bounds);
   ctx.save();
   ctx.setLineDash([3, 3]);
   ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(mouseX + 0.5, padding.top);
-  ctx.lineTo(mouseX + 0.5, bottomAxisY);
+  ctx.moveTo(snapX + 0.5, padding.top);
+  ctx.lineTo(snapX + 0.5, bottomAxisY);
   ctx.stroke();
   ctx.beginPath();
-  ctx.moveTo(padding.left, mouseY + 0.5);
-  ctx.lineTo(rightAxisX, mouseY + 0.5);
+  ctx.moveTo(padding.left, crossY + 0.5);
+  ctx.lineTo(rightAxisX, crossY + 0.5);
   ctx.stroke();
   ctx.setLineDash([]);
   ctx.font = "bold 10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
@@ -442,8 +410,8 @@ function drawCrosshair(ctx, bounds, hover, cursorPrice, timeText) {
   const pillW = textW + 10;
   const pillH = 16;
   const pillX = rightAxisX + 4;
-  const pillY = Math.round(mouseY - pillH / 2);
-  ctx.fillStyle = "#38bdf8";
+  const pillY = Math.round(crossY - pillH / 2);
+  ctx.fillStyle = snappedToWick ? "#10b981" : "#38bdf8";
   ctx.beginPath();
   ctx.roundRect(pillX, pillY, pillW, pillH, 3);
   ctx.fill();
@@ -455,7 +423,7 @@ function drawCrosshair(ctx, bounds, hover, cursorPrice, timeText) {
     ctx.font = "10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
     const timeW = ctx.measureText(timeText).width + 12;
     const timeH = 16;
-    const timeX = Math.round(mouseX - timeW / 2);
+    const timeX = Math.round(snapX - timeW / 2);
     const timeY = bottomAxisY + 4;
     ctx.fillStyle = "#1e293b";
     ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
@@ -709,13 +677,327 @@ function setupCanvasDpi(canvas, width, height) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
   const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-  canvas.width = Math.round(width * dpr);
-  canvas.height = Math.round(height * dpr);
+  const targetW = Math.round(width * dpr);
+  const targetH = Math.round(height * dpr);
+  if (canvas.width !== targetW) canvas.width = targetW;
+  if (canvas.height !== targetH) canvas.height = targetH;
   canvas.style.width = `${width}px`;
   canvas.style.height = `${height}px`;
-  ctx.resetTransform();
-  ctx.scale(dpr, dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   return { ctx, dpr };
+}
+
+// src/hooks/useChartSurface.ts
+var import_react = require("react");
+function useChartSurface() {
+  const containerRef = (0, import_react.useRef)(null);
+  const canvasRef = (0, import_react.useRef)(null);
+  const overlayRef = (0, import_react.useRef)(null);
+  const [containerWidth, setContainerWidth] = (0, import_react.useState)(600);
+  const [dpr, setDpr] = (0, import_react.useState)(
+    () => typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1
+  );
+  (0, import_react.useEffect)(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    setContainerWidth(el.clientWidth || 600);
+    let raf = 0;
+    let pendingWidth = 0;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const width = entry.contentRect.width;
+        if (width > 0 && width !== pendingWidth) {
+          pendingWidth = width;
+          cancelAnimationFrame(raf);
+          raf = requestAnimationFrame(() => setContainerWidth(pendingWidth));
+        }
+      }
+    });
+    ro.observe(el);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, []);
+  (0, import_react.useEffect)(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia(`(resolution: ${dpr}dppx)`);
+    const onChange = () => setDpr(window.devicePixelRatio || 1);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [dpr]);
+  return { containerRef, canvasRef, overlayRef, containerWidth, dpr };
+}
+
+// src/hooks/useChartViewport.ts
+var import_react2 = require("react");
+
+// src/engine/viewport.ts
+function createViewport(totalCount, minVisible = 8) {
+  const safeCount = Math.max(0, totalCount);
+  return {
+    startIndex: 0,
+    endIndex: Math.max(0, safeCount - 1),
+    totalCount: safeCount,
+    minVisible: Math.min(minVisible, Math.max(1, safeCount))
+  };
+}
+function isViewportZoomed(viewport) {
+  if (viewport.totalCount <= 0) return false;
+  return viewport.startIndex > 0 || viewport.endIndex < viewport.totalCount - 1;
+}
+function getZoomLevel(viewport) {
+  const visibleCount = getVisibleCount(viewport);
+  if (visibleCount <= 0 || viewport.totalCount <= 0) return 1;
+  const ratio = viewport.totalCount / visibleCount;
+  return Math.round(ratio * 10) / 10;
+}
+function getVisibleCount(viewport) {
+  if (viewport.totalCount <= 0) return 0;
+  return Math.max(1, viewport.endIndex - viewport.startIndex + 1);
+}
+function zoomViewport(viewport, factor, anchorRatio = 0.5) {
+  const { totalCount, minVisible, startIndex, endIndex } = viewport;
+  if (totalCount <= minVisible) return viewport;
+  const currentSpan = endIndex - startIndex + 1;
+  const targetSpan = Math.round(currentSpan / factor);
+  const newSpan = Math.max(minVisible, Math.min(totalCount, targetSpan));
+  if (newSpan === currentSpan) return viewport;
+  const spanDelta = newSpan - currentSpan;
+  const clampedAnchor = Math.max(0, Math.min(1, anchorRatio));
+  let newStart = Math.round(startIndex - spanDelta * clampedAnchor);
+  let newEnd = newStart + newSpan - 1;
+  if (newStart < 0) {
+    newEnd += -newStart;
+    newStart = 0;
+  }
+  if (newEnd >= totalCount) {
+    const overflow = newEnd - (totalCount - 1);
+    newStart = Math.max(0, newStart - overflow);
+    newEnd = totalCount - 1;
+  }
+  return {
+    ...viewport,
+    startIndex: Math.max(0, newStart),
+    endIndex: Math.min(totalCount - 1, newEnd)
+  };
+}
+function panViewport(viewport, deltaBars) {
+  const { totalCount, startIndex, endIndex } = viewport;
+  if (totalCount <= 0 || deltaBars === 0) return viewport;
+  const span = endIndex - startIndex + 1;
+  let newStart = startIndex - deltaBars;
+  let newEnd = newStart + span - 1;
+  if (newStart < 0) {
+    newStart = 0;
+    newEnd = Math.min(totalCount - 1, span - 1);
+  } else if (newEnd >= totalCount) {
+    newEnd = totalCount - 1;
+    newStart = Math.max(0, totalCount - span);
+  }
+  return {
+    ...viewport,
+    startIndex: newStart,
+    endIndex: newEnd
+  };
+}
+function resetViewport(totalCount, minVisible = 8) {
+  return createViewport(totalCount, minVisible);
+}
+
+// src/hooks/useChartViewport.ts
+function useChartViewport(totalCount, minVisible = 8) {
+  const [viewport, setViewport] = (0, import_react2.useState)(
+    () => createViewport(totalCount, minVisible)
+  );
+  (0, import_react2.useEffect)(() => {
+    setViewport(
+      (prev) => prev.totalCount === totalCount ? prev : createViewport(totalCount, minVisible)
+    );
+  }, [totalCount, minVisible]);
+  const zoomIn = (0, import_react2.useCallback)(() => {
+    setViewport((prev) => zoomViewport(prev, 1.25, 0.5));
+  }, []);
+  const zoomOut = (0, import_react2.useCallback)(() => {
+    setViewport((prev) => zoomViewport(prev, 0.8, 0.5));
+  }, []);
+  const resetView = (0, import_react2.useCallback)(() => {
+    setViewport(createViewport(totalCount, minVisible));
+  }, [totalCount, minVisible]);
+  const pan = (0, import_react2.useCallback)((deltaBars) => {
+    setViewport((prev) => panViewport(prev, deltaBars));
+  }, []);
+  return {
+    viewport,
+    setViewport,
+    zoomIn,
+    zoomOut,
+    resetView,
+    pan,
+    isZoomed: isViewportZoomed(viewport),
+    zoomLevel: getZoomLevel(viewport)
+  };
+}
+
+// src/hooks/useChartPointer.ts
+var import_react3 = require("react");
+var INACTIVE_RULER = { active: false, startPoint: null, currentPoint: null };
+function useChartPointer({
+  canvasRef,
+  bounds,
+  visible,
+  slotCount,
+  indexOffset = 0,
+  panZoom = false,
+  viewport,
+  onViewportChange
+}) {
+  const [hover, setHover] = (0, import_react3.useState)(null);
+  const [ruler, setRuler] = (0, import_react3.useState)(INACTIVE_RULER);
+  const [isRulerToolActive, setIsRulerToolActive] = (0, import_react3.useState)(false);
+  const rafRef = (0, import_react3.useRef)(0);
+  const dragRef = (0, import_react3.useRef)({
+    isDragging: false,
+    startX: 0,
+    initialViewport: createInitialViewport()
+  });
+  function createInitialViewport() {
+    return viewport ?? { startIndex: 0, endIndex: 0, totalCount: 0, minVisible: 1 };
+  }
+  const schedule = (0, import_react3.useCallback)((fn) => {
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(fn);
+  }, []);
+  (0, import_react3.useEffect)(() => {
+    setHover(null);
+  }, [visible]);
+  (0, import_react3.useEffect)(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        setRuler(INACTIVE_RULER);
+        setIsRulerToolActive(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+  (0, import_react3.useEffect)(() => () => cancelAnimationFrame(rafRef.current), []);
+  const boundsRef = (0, import_react3.useRef)(bounds);
+  (0, import_react3.useEffect)(() => {
+    boundsRef.current = bounds;
+  });
+  const viewportChangeRef = (0, import_react3.useRef)(onViewportChange);
+  (0, import_react3.useEffect)(() => {
+    viewportChangeRef.current = onViewportChange;
+  });
+  (0, import_react3.useEffect)(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !panZoom) return;
+    const onWheel = (e) => {
+      e.preventDefault();
+      const b = boundsRef.current;
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const anchorRatio = (mouseX - b.padding.left) / b.plotWidth;
+      const factor = e.deltaY < 0 ? 1.15 : 0.85;
+      viewportChangeRef.current?.(zoomViewportByAnchor(factor, anchorRatio));
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, [canvasRef, panZoom]);
+  const liveViewportRef = (0, import_react3.useRef)(viewport);
+  (0, import_react3.useEffect)(() => {
+    liveViewportRef.current = viewport;
+  });
+  function zoomViewportByAnchor(factor, anchorRatio) {
+    return zoomViewport(liveViewportRef.current ?? createInitialViewport(), factor, anchorRatio);
+  }
+  const hitTest = (mouseX, mouseY) => {
+    const count = slotCount ?? visible.length;
+    const localIdx = xToIndex(mouseX, count, bounds);
+    const candle = visible[localIdx] ?? null;
+    const snapX = indexToX(localIdx, count, bounds);
+    const price = yToPrice(mouseY, bounds);
+    const globalIndex = indexOffset + localIdx;
+    return { candle, snapX, price, globalIndex };
+  };
+  const handlePointerDown = (e) => {
+    if (visible.length === 0) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const canvas = e.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const { candle, price, globalIndex } = hitTest(mouseX, mouseY);
+    if (e.shiftKey || isRulerToolActive) {
+      const point = { x: mouseX, y: mouseY, price, time: candle?.t, index: globalIndex };
+      setRuler({ active: true, startPoint: point, currentPoint: point });
+      return;
+    }
+    if (panZoom && viewport && onViewportChange) {
+      canvas.setPointerCapture?.(e.pointerId);
+      dragRef.current = { isDragging: true, startX: mouseX, initialViewport: viewport };
+    }
+  };
+  const handlePointerMove = (e) => {
+    if (visible.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const { candle, snapX, price, globalIndex } = hitTest(mouseX, mouseY);
+    if (ruler.active && ruler.startPoint) {
+      const point = { x: mouseX, y: mouseY, price, time: candle?.t, index: globalIndex };
+      schedule(() => setRuler((prev) => ({ ...prev, currentPoint: point })));
+      return;
+    }
+    if (dragRef.current.isDragging && onViewportChange) {
+      const deltaX = mouseX - dragRef.current.startX;
+      const barWidth = bounds.plotWidth / Math.max(1, slotCount ?? visible.length);
+      const deltaBars = Math.round(deltaX / barWidth);
+      const nextViewport = panViewport(dragRef.current.initialViewport, deltaBars);
+      schedule(() => {
+        onViewportChange(nextViewport);
+        setHover(null);
+      });
+      return;
+    }
+    schedule(() => setHover({ mouseX, mouseY, snapX, index: globalIndex, candle }));
+  };
+  const handlePointerUp = () => {
+    dragRef.current.isDragging = false;
+  };
+  const handlePointerCancel = () => {
+    dragRef.current.isDragging = false;
+    setHover(null);
+  };
+  const handlePointerLeave = () => {
+    dragRef.current.isDragging = false;
+    setHover(null);
+  };
+  const toggleRuler = (0, import_react3.useCallback)(() => {
+    setIsRulerToolActive((prev) => {
+      if (prev) setRuler(INACTIVE_RULER);
+      return !prev;
+    });
+  }, []);
+  const clearRuler = (0, import_react3.useCallback)(() => {
+    setRuler(INACTIVE_RULER);
+    setIsRulerToolActive(false);
+  }, []);
+  return {
+    hover,
+    ruler,
+    isRulerToolActive,
+    toggleRuler,
+    clearRuler,
+    pointerHandlers: {
+      onPointerDown: handlePointerDown,
+      onPointerMove: handlePointerMove,
+      onPointerUp: handlePointerUp,
+      onPointerCancel: handlePointerCancel,
+      onPointerLeave: handlePointerLeave
+    }
+  };
 }
 
 // src/components/VortexCandleChart.tsx
@@ -734,47 +1016,25 @@ var VortexCandleChart = ({
   showControls = true,
   theme = {}
 }) => {
-  const containerRef = (0, import_react.useRef)(null);
-  const canvasRef = (0, import_react.useRef)(null);
-  const [containerWidth, setContainerWidth] = (0, import_react.useState)(600);
-  const [hover, setHover] = (0, import_react.useState)(null);
-  const sortedCandles = (0, import_react.useMemo)(() => {
-    return Array.from(
-      new Map(candles.map((c) => [c.t, c])).values()
-    ).sort((a, b) => a.t - b.t);
+  const sortedCandles = (0, import_react4.useMemo)(() => {
+    return Array.from(new Map(candles.map((c) => [c.t, c])).values()).sort((a, b) => a.t - b.t);
   }, [candles]);
-  const [viewport, setViewport] = (0, import_react.useState)(
-    () => createViewport(sortedCandles.length, 6)
-  );
-  (0, import_react.useEffect)(() => {
-    setViewport((prev) => {
-      if (prev.totalCount === sortedCandles.length) return prev;
-      return createViewport(sortedCandles.length, 6);
-    });
-  }, [sortedCandles.length]);
-  const [isRulerToolActive, setIsRulerToolActive] = (0, import_react.useState)(false);
-  const [ruler, setRuler] = (0, import_react.useState)({
-    active: false,
-    startPoint: null,
-    currentPoint: null
-  });
-  const dragRef = (0, import_react.useRef)({
-    isDragging: false,
-    hasMoved: false,
-    startX: 0,
-    initialViewport: createViewport(0)
-  });
-  const mergedColors = (0, import_react.useMemo)(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
-  const visibleCandles = (0, import_react.useMemo)(() => {
+  const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
+  const { viewport, setViewport, zoomIn, zoomOut, resetView, isZoomed, zoomLevel } = useChartViewport(sortedCandles.length, 6);
+  const mergedColors = (0, import_react4.useMemo)(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
+  const visibleCandles = (0, import_react4.useMemo)(() => {
     if (sortedCandles.length === 0) return [];
     const start = Math.max(0, Math.min(viewport.startIndex, sortedCandles.length - 1));
     const end = Math.max(start, Math.min(viewport.endIndex, sortedCandles.length - 1));
     return sortedCandles.slice(start, end + 1);
   }, [sortedCandles, viewport.startIndex, viewport.endIndex]);
-  const allLines = (0, import_react.useMemo)(() => {
-    const list = [...priceLines];
+  const bounds = (0, import_react4.useMemo)(() => {
+    const prices = [];
+    visibleCandles.forEach((c) => prices.push(c.high, c.low));
+    const lines = [...priceLines];
     if (typeof swingHigh === "number" && swingHigh > 0) {
-      list.push({
+      prices.push(swingHigh);
+      lines.push({
         price: swingHigh,
         color: mergedColors.bearish,
         lineWidth: 1,
@@ -784,7 +1044,8 @@ var VortexCandleChart = ({
       });
     }
     if (typeof swingLow === "number" && swingLow > 0) {
-      list.push({
+      prices.push(swingLow);
+      lines.push({
         price: swingLow,
         color: mergedColors.bullish,
         lineWidth: 1,
@@ -794,7 +1055,8 @@ var VortexCandleChart = ({
       });
     }
     if (typeof spotPrice === "number" && spotPrice > 0) {
-      list.push({
+      prices.push(spotPrice);
+      lines.push({
         price: spotPrice,
         color: mergedColors.spot,
         lineWidth: 2,
@@ -804,7 +1066,8 @@ var VortexCandleChart = ({
       });
     }
     if (atrBounds?.upper && atrBounds.upper > 0) {
-      list.push({
+      prices.push(atrBounds.upper);
+      lines.push({
         price: atrBounds.upper,
         color: "rgba(234, 179, 8, 0.75)",
         lineWidth: 1,
@@ -814,7 +1077,8 @@ var VortexCandleChart = ({
       });
     }
     if (atrBounds?.lower && atrBounds.lower > 0) {
-      list.push({
+      prices.push(atrBounds.lower);
+      lines.push({
         price: atrBounds.lower,
         color: "rgba(234, 179, 8, 0.75)",
         lineWidth: 1,
@@ -823,33 +1087,11 @@ var VortexCandleChart = ({
         axisLabelVisible: false
       });
     }
-    return list;
-  }, [priceLines, swingHigh, swingLow, spotPrice, atrBounds, mergedColors]);
-  (0, import_react.useEffect)(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    setContainerWidth(el.clientWidth || 600);
-    const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.contentRect.width > 0) {
-          setContainerWidth(entry.contentRect.width);
-        }
-      }
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  const bounds = (0, import_react.useMemo)(() => {
-    const prices = [];
-    visibleCandles.forEach((c) => {
-      prices.push(c.high, c.low);
-    });
-    allLines.forEach((l) => {
-      if (typeof l.price === "number") prices.push(l.price);
-    });
-    return computeBounds(prices, containerWidth, height);
-  }, [visibleCandles, allLines, containerWidth, height]);
-  const timeLabels = (0, import_react.useMemo)(() => {
+    return { computed: computeBounds(prices, containerWidth, height), lines };
+  }, [visibleCandles, priceLines, swingHigh, swingLow, spotPrice, atrBounds, mergedColors, containerWidth, height]);
+  const chartBounds = bounds.computed;
+  const allLines = bounds.lines;
+  const timeLabels = (0, import_react4.useMemo)(() => {
     if (visibleCandles.length === 0) return [];
     const count = visibleCandles.length;
     const maxLabels = Math.max(3, Math.min(6, Math.floor(containerWidth / 120)));
@@ -857,171 +1099,56 @@ var VortexCandleChart = ({
     const labels = [];
     for (let i = 0; i < count; i += step) {
       const c = visibleCandles[i];
-      const x = indexToX(i, count, bounds);
-      const text = formatCandleTime(c.t, isIntraday);
-      labels.push({ x, text });
+      const x = indexToX(i, count, chartBounds);
+      labels.push({ x, text: formatCandleTime(c.t, isIntraday) });
     }
     return labels;
-  }, [visibleCandles, containerWidth, bounds, isIntraday]);
-  const handleZoomIn = (0, import_react.useCallback)(() => {
-    setViewport((prev) => zoomViewport(prev, 1.25, 0.5));
-  }, []);
-  const handleZoomOut = (0, import_react.useCallback)(() => {
-    setViewport((prev) => zoomViewport(prev, 0.8, 0.5));
-  }, []);
-  const handleReset = (0, import_react.useCallback)(() => {
-    setViewport(resetViewport(sortedCandles.length, 6));
-    setRuler({ active: false, startPoint: null, currentPoint: null });
-  }, [sortedCandles.length]);
-  const toggleRuler = (0, import_react.useCallback)(() => {
-    setIsRulerToolActive((prev) => {
-      if (prev) {
-        setRuler({ active: false, startPoint: null, currentPoint: null });
-      }
-      return !prev;
-    });
-  }, []);
-  (0, import_react.useEffect)(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const onWheel = (e) => {
-      e.preventDefault();
-      const rect = canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const anchorRatio = (mouseX - bounds.padding.left) / bounds.plotWidth;
-      const factor = e.deltaY < 0 ? 1.15 : 0.85;
-      setViewport((prev) => zoomViewport(prev, factor, anchorRatio));
-    };
-    canvas.addEventListener("wheel", onWheel, { passive: false });
-    return () => {
-      canvas.removeEventListener("wheel", onWheel);
-    };
-  }, [bounds.padding.left, bounds.plotWidth]);
-  (0, import_react.useEffect)(() => {
+  }, [visibleCandles, containerWidth, chartBounds, isIntraday]);
+  const { hover, ruler, isRulerToolActive, toggleRuler, clearRuler, pointerHandlers } = useChartPointer({
+    canvasRef,
+    bounds: chartBounds,
+    visible: visibleCandles,
+    indexOffset: viewport.startIndex,
+    panZoom: true,
+    viewport,
+    onViewportChange: setViewport
+  });
+  const handleReset = () => {
+    resetView();
+    clearRuler();
+  };
+  (0, import_react4.useEffect)(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const setup = setupCanvasDpi(canvas, containerWidth, height);
     if (!setup) return;
     const { ctx } = setup;
     ctx.clearRect(0, 0, containerWidth, height);
-    drawGridAndAxes(ctx, bounds, timeLabels);
-    drawCandlesticks(ctx, visibleCandles, bounds, {
+    drawGridAndAxes(ctx, chartBounds, timeLabels);
+    drawCandlesticks(ctx, visibleCandles, chartBounds, {
       upColor: mergedColors.bullish,
       downColor: mergedColors.bearish
     });
-    drawPriceLines(ctx, allLines, bounds);
+    drawPriceLines(ctx, allLines, chartBounds);
     if (showWatermark) {
-      drawVortexWatermark(ctx, bounds);
+      drawVortexWatermark(ctx, chartBounds);
     }
+  }, [containerWidth, height, dpr, chartBounds, visibleCandles, allLines, timeLabels, showWatermark, mergedColors, canvasRef]);
+  (0, import_react4.useEffect)(() => {
+    const canvas = overlayRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
     if (ruler.active) {
-      drawRulerOverlay(ctx, bounds, ruler);
+      drawRulerOverlay(ctx, chartBounds, ruler);
     }
     if (hover && hover.candle && !ruler.active) {
-      const cursorPrice = yToPrice(hover.mouseY, bounds);
-      const timeStr = formatCandleTime(hover.candle.t, isIntraday);
-      drawCrosshair(ctx, bounds, hover, cursorPrice, timeStr);
+      drawCrosshair(ctx, chartBounds, hover, formatCandleTime(hover.candle.t, isIntraday));
     }
-  }, [
-    containerWidth,
-    height,
-    bounds,
-    visibleCandles,
-    allLines,
-    timeLabels,
-    hover,
-    ruler,
-    showWatermark,
-    mergedColors,
-    isIntraday
-  ]);
-  const handleMouseDown = (e) => {
-    const canvas = canvasRef.current;
-    if (!canvas || visibleCandles.length === 0) return;
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    const localIdx = xToIndex(mouseX, visibleCandles.length, bounds);
-    const candle = visibleCandles[localIdx] || null;
-    const price = yToPrice(mouseY, bounds);
-    if (e.shiftKey || isRulerToolActive) {
-      const point = {
-        x: mouseX,
-        y: mouseY,
-        price,
-        time: candle?.t,
-        index: viewport.startIndex + localIdx
-      };
-      setRuler({
-        active: true,
-        startPoint: point,
-        currentPoint: point
-      });
-    } else {
-      dragRef.current = {
-        isDragging: true,
-        hasMoved: false,
-        startX: mouseX,
-        initialViewport: viewport
-      };
-    }
-  };
-  const handleMouseMove = (e) => {
-    const canvas = canvasRef.current;
-    if (!canvas || visibleCandles.length === 0) return;
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    const localIdx = xToIndex(mouseX, visibleCandles.length, bounds);
-    const candle = visibleCandles[localIdx] || null;
-    const price = yToPrice(mouseY, bounds);
-    if (ruler.active && ruler.startPoint) {
-      setRuler((prev) => ({
-        ...prev,
-        currentPoint: {
-          x: mouseX,
-          y: mouseY,
-          price,
-          time: candle?.t,
-          index: viewport.startIndex + localIdx
-        }
-      }));
-      return;
-    }
-    if (dragRef.current.isDragging) {
-      const deltaX = mouseX - dragRef.current.startX;
-      if (Math.abs(deltaX) > 3) {
-        dragRef.current.hasMoved = true;
-      }
-      const barWidth = bounds.plotWidth / Math.max(1, visibleCandles.length);
-      const deltaBars = Math.round(deltaX / barWidth);
-      setViewport(panViewport(dragRef.current.initialViewport, deltaBars));
-      setHover(null);
-      return;
-    }
-    setHover({ mouseX, mouseY, index: localIdx, candle });
-  };
-  const handleMouseUp = () => {
-    if (dragRef.current.isDragging) {
-      dragRef.current.isDragging = false;
-    }
-  };
-  const handleMouseLeave = () => {
-    dragRef.current.isDragging = false;
-    setHover(null);
-  };
-  (0, import_react.useEffect)(() => {
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") {
-        setRuler({ active: false, startPoint: null, currentPoint: null });
-        setIsRulerToolActive(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-  const isZoomed = isViewportZoomed(viewport);
-  const zoomLevel = getZoomLevel(viewport);
-  const hoverMetrics = (0, import_react.useMemo)(() => {
+  }, [containerWidth, height, dpr, chartBounds, hover, ruler, isIntraday, overlayRef]);
+  const hoverMetrics = (0, import_react4.useMemo)(() => {
     if (!hover?.candle) return null;
     const change = formatChange(hover.candle.open, hover.candle.close);
     const vol = formatVolume(hover.candle.volume);
@@ -1038,19 +1165,24 @@ var VortexCandleChart = ({
           "canvas",
           {
             ref: canvasRef,
-            onMouseDown: handleMouseDown,
-            onMouseMove: handleMouseMove,
-            onMouseUp: handleMouseUp,
-            onMouseLeave: handleMouseLeave,
+            ...pointerHandlers,
             onDoubleClick: handleReset,
-            className: `block w-full h-full ${ruler.active || isRulerToolActive ? "cursor-crosshair" : dragRef.current.isDragging ? "cursor-grabbing" : isZoomed ? "cursor-grab" : "cursor-crosshair"}`
+            className: `block h-full w-full ${ruler.active || isRulerToolActive ? "cursor-crosshair" : isZoomed ? "cursor-grab active:cursor-grabbing" : "cursor-crosshair"}`,
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+          "canvas",
+          {
+            ref: overlayRef,
+            className: "pointer-events-none absolute inset-0 block"
           }
         ),
         showControls && sortedCandles.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
           VortexChartControls,
           {
-            onZoomIn: handleZoomIn,
-            onZoomOut: handleZoomOut,
+            onZoomIn: zoomIn,
+            onZoomOut: zoomOut,
             onReset: handleReset,
             isZoomed,
             zoomLevel,
@@ -1119,7 +1251,7 @@ var VortexCandleChart = ({
 };
 
 // src/components/VortexRangeChart.tsx
-var import_react2 = require("react");
+var import_react5 = require("react");
 
 // src/engine/boxes.ts
 function drawSessionBox(ctx, box, bounds) {
@@ -1233,58 +1365,19 @@ var VortexRangeChart = ({
   showControls = true,
   theme = {}
 }) => {
-  const containerRef = (0, import_react2.useRef)(null);
-  const canvasRef = (0, import_react2.useRef)(null);
-  const [containerWidth, setContainerWidth] = (0, import_react2.useState)(600);
-  const [hover, setHover] = (0, import_react2.useState)(null);
-  const sortedCandles = (0, import_react2.useMemo)(() => {
-    return Array.from(
-      new Map(candles.map((c) => [c.t, c])).values()
-    ).sort((a, b) => a.t - b.t);
+  const sortedCandles = (0, import_react5.useMemo)(() => {
+    return Array.from(new Map(candles.map((c) => [c.t, c])).values()).sort((a, b) => a.t - b.t);
   }, [candles]);
-  const [viewport, setViewport] = (0, import_react2.useState)(
-    () => createViewport(sortedCandles.length, 12)
-  );
-  (0, import_react2.useEffect)(() => {
-    setViewport((prev) => {
-      if (prev.totalCount === sortedCandles.length) return prev;
-      return createViewport(sortedCandles.length, 12);
-    });
-  }, [sortedCandles.length]);
-  const [isRulerToolActive, setIsRulerToolActive] = (0, import_react2.useState)(false);
-  const [ruler, setRuler] = (0, import_react2.useState)({
-    active: false,
-    startPoint: null,
-    currentPoint: null
-  });
-  const dragRef = (0, import_react2.useRef)({
-    isDragging: false,
-    hasMoved: false,
-    startX: 0,
-    initialViewport: createViewport(0)
-  });
-  const mergedColors = (0, import_react2.useMemo)(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
-  const visibleCandles = (0, import_react2.useMemo)(() => {
+  const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
+  const { viewport, setViewport, zoomIn, zoomOut, resetView, isZoomed, zoomLevel } = useChartViewport(sortedCandles.length, 12);
+  const mergedColors = (0, import_react5.useMemo)(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
+  const visibleCandles = (0, import_react5.useMemo)(() => {
     if (sortedCandles.length === 0) return [];
     const start = Math.max(0, Math.min(viewport.startIndex, sortedCandles.length - 1));
     const end = Math.max(start, Math.min(viewport.endIndex, sortedCandles.length - 1));
     return sortedCandles.slice(start, end + 1);
   }, [sortedCandles, viewport.startIndex, viewport.endIndex]);
-  (0, import_react2.useEffect)(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    setContainerWidth(el.clientWidth || 600);
-    const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.contentRect.width > 0) {
-          setContainerWidth(entry.contentRect.width);
-        }
-      }
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  const bounds = (0, import_react2.useMemo)(() => {
+  const bounds = (0, import_react5.useMemo)(() => {
     const prices = [];
     visibleCandles.forEach((c) => prices.push(c.high, c.low));
     if (priorDay && priorDay.high > 0) prices.push(priorDay.high, priorDay.low);
@@ -1294,7 +1387,7 @@ var VortexRangeChart = ({
     });
     return computeBounds(prices, containerWidth, height);
   }, [visibleCandles, priorDay, premarket, vwapSeries, containerWidth, height]);
-  const timeLabels = (0, import_react2.useMemo)(() => {
+  const timeLabels = (0, import_react5.useMemo)(() => {
     if (visibleCandles.length === 0) return [];
     const count = visibleCandles.length;
     const maxLabels = Math.max(3, Math.min(6, Math.floor(containerWidth / 120)));
@@ -1303,12 +1396,11 @@ var VortexRangeChart = ({
     for (let i = 0; i < count; i += step) {
       const c = visibleCandles[i];
       const x = indexToX(i, count, bounds);
-      const text = formatCandleTime(c.t, true);
-      labels.push({ x, text });
+      labels.push({ x, text: formatCandleTime(c.t, true) });
     }
     return labels;
   }, [visibleCandles, containerWidth, bounds]);
-  const vwapPoints = (0, import_react2.useMemo)(() => {
+  const vwapPoints = (0, import_react5.useMemo)(() => {
     if (vwapSeries.length === 0 || visibleCandles.length === 0) return [];
     const points = [];
     const count = visibleCandles.length;
@@ -1329,41 +1421,20 @@ var VortexRangeChart = ({
     });
     return points;
   }, [vwapSeries, visibleCandles, bounds]);
-  const handleZoomIn = (0, import_react2.useCallback)(() => {
-    setViewport((prev) => zoomViewport(prev, 1.25, 0.5));
-  }, []);
-  const handleZoomOut = (0, import_react2.useCallback)(() => {
-    setViewport((prev) => zoomViewport(prev, 0.8, 0.5));
-  }, []);
-  const handleReset = (0, import_react2.useCallback)(() => {
-    setViewport(resetViewport(sortedCandles.length, 12));
-    setRuler({ active: false, startPoint: null, currentPoint: null });
-  }, [sortedCandles.length]);
-  const toggleRuler = (0, import_react2.useCallback)(() => {
-    setIsRulerToolActive((prev) => {
-      if (prev) {
-        setRuler({ active: false, startPoint: null, currentPoint: null });
-      }
-      return !prev;
-    });
-  }, []);
-  (0, import_react2.useEffect)(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const onWheel = (e) => {
-      e.preventDefault();
-      const rect = canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const anchorRatio = (mouseX - bounds.padding.left) / bounds.plotWidth;
-      const factor = e.deltaY < 0 ? 1.15 : 0.85;
-      setViewport((prev) => zoomViewport(prev, factor, anchorRatio));
-    };
-    canvas.addEventListener("wheel", onWheel, { passive: false });
-    return () => {
-      canvas.removeEventListener("wheel", onWheel);
-    };
-  }, [bounds.padding.left, bounds.plotWidth]);
-  (0, import_react2.useEffect)(() => {
+  const { hover, ruler, isRulerToolActive, toggleRuler, clearRuler, pointerHandlers } = useChartPointer({
+    canvasRef,
+    bounds,
+    visible: visibleCandles,
+    indexOffset: viewport.startIndex,
+    panZoom: true,
+    viewport,
+    onViewportChange: setViewport
+  });
+  const handleReset = () => {
+    resetView();
+    clearRuler();
+  };
+  (0, import_react5.useEffect)(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const setup = setupCanvasDpi(canvas, containerWidth, height);
@@ -1415,117 +1486,22 @@ var VortexRangeChart = ({
     if (showWatermark) {
       drawVortexWatermark(ctx, bounds);
     }
+  }, [containerWidth, height, dpr, bounds, visibleCandles, priorDay, premarket, vwapPoints, overlayMode, timeLabels, showWatermark, mergedColors, canvasRef]);
+  (0, import_react5.useEffect)(() => {
+    const canvas = overlayRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
     if (ruler.active) {
       drawRulerOverlay(ctx, bounds, ruler);
     }
     if (hover && hover.candle && !ruler.active) {
-      const cursorPrice = yToPrice(hover.mouseY, bounds);
-      const timeStr = formatCandleTime(hover.candle.t, true);
-      drawCrosshair(ctx, bounds, hover, cursorPrice, timeStr);
+      drawCrosshair(ctx, bounds, hover, formatCandleTime(hover.candle.t, true));
     }
-  }, [
-    containerWidth,
-    height,
-    bounds,
-    visibleCandles,
-    priorDay,
-    premarket,
-    vwapPoints,
-    overlayMode,
-    timeLabels,
-    hover,
-    ruler,
-    showWatermark,
-    mergedColors
-  ]);
-  const handleMouseDown = (e) => {
-    const canvas = canvasRef.current;
-    if (!canvas || visibleCandles.length === 0) return;
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    const localIdx = xToIndex(mouseX, visibleCandles.length, bounds);
-    const candle = visibleCandles[localIdx] || null;
-    const price = yToPrice(mouseY, bounds);
-    if (e.shiftKey || isRulerToolActive) {
-      const point = {
-        x: mouseX,
-        y: mouseY,
-        price,
-        time: candle?.t,
-        index: viewport.startIndex + localIdx
-      };
-      setRuler({
-        active: true,
-        startPoint: point,
-        currentPoint: point
-      });
-    } else {
-      dragRef.current = {
-        isDragging: true,
-        hasMoved: false,
-        startX: mouseX,
-        initialViewport: viewport
-      };
-    }
-  };
-  const handleMouseMove = (e) => {
-    const canvas = canvasRef.current;
-    if (!canvas || visibleCandles.length === 0) return;
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    const localIdx = xToIndex(mouseX, visibleCandles.length, bounds);
-    const candle = visibleCandles[localIdx] || null;
-    const price = yToPrice(mouseY, bounds);
-    if (ruler.active && ruler.startPoint) {
-      setRuler((prev) => ({
-        ...prev,
-        currentPoint: {
-          x: mouseX,
-          y: mouseY,
-          price,
-          time: candle?.t,
-          index: viewport.startIndex + localIdx
-        }
-      }));
-      return;
-    }
-    if (dragRef.current.isDragging) {
-      const deltaX = mouseX - dragRef.current.startX;
-      if (Math.abs(deltaX) > 3) {
-        dragRef.current.hasMoved = true;
-      }
-      const barWidth = bounds.plotWidth / Math.max(1, visibleCandles.length);
-      const deltaBars = Math.round(deltaX / barWidth);
-      setViewport(panViewport(dragRef.current.initialViewport, deltaBars));
-      setHover(null);
-      return;
-    }
-    setHover({ mouseX, mouseY, index: localIdx, candle });
-  };
-  const handleMouseUp = () => {
-    if (dragRef.current.isDragging) {
-      dragRef.current.isDragging = false;
-    }
-  };
-  const handleMouseLeave = () => {
-    dragRef.current.isDragging = false;
-    setHover(null);
-  };
-  (0, import_react2.useEffect)(() => {
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") {
-        setRuler({ active: false, startPoint: null, currentPoint: null });
-        setIsRulerToolActive(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-  const isZoomed = isViewportZoomed(viewport);
-  const zoomLevel = getZoomLevel(viewport);
-  const hoverMetrics = (0, import_react2.useMemo)(() => {
+  }, [containerWidth, height, dpr, bounds, hover, ruler, overlayRef]);
+  const hoverMetrics = (0, import_react5.useMemo)(() => {
     if (!hover?.candle) return null;
     const change = formatChange(hover.candle.open, hover.candle.close);
     const vol = formatVolume(hover.candle.volume);
@@ -1542,19 +1518,24 @@ var VortexRangeChart = ({
           "canvas",
           {
             ref: canvasRef,
-            onMouseDown: handleMouseDown,
-            onMouseMove: handleMouseMove,
-            onMouseUp: handleMouseUp,
-            onMouseLeave: handleMouseLeave,
+            ...pointerHandlers,
             onDoubleClick: handleReset,
-            className: `block w-full h-full ${ruler.active || isRulerToolActive ? "cursor-crosshair" : dragRef.current.isDragging ? "cursor-grabbing" : isZoomed ? "cursor-grab" : "cursor-crosshair"}`
+            className: `block h-full w-full ${ruler.active || isRulerToolActive ? "cursor-crosshair" : isZoomed ? "cursor-grab active:cursor-grabbing" : "cursor-crosshair"}`,
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+          "canvas",
+          {
+            ref: overlayRef,
+            className: "pointer-events-none absolute inset-0 block"
           }
         ),
         showControls && sortedCandles.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
           VortexChartControls,
           {
-            onZoomIn: handleZoomIn,
-            onZoomOut: handleZoomOut,
+            onZoomIn: zoomIn,
+            onZoomOut: zoomOut,
             onReset: handleReset,
             isZoomed,
             zoomLevel,
@@ -1623,7 +1604,7 @@ var VortexRangeChart = ({
 };
 
 // src/components/VortexConeChart.tsx
-var import_react3 = require("react");
+var import_react6 = require("react");
 var import_jsx_runtime5 = require("react/jsx-runtime");
 var VortexConeChart = ({
   candles,
@@ -1633,7 +1614,7 @@ var VortexConeChart = ({
   expirationDate,
   expectedMove,
   targetRange,
-  dte = 1,
+  dte,
   rangeHigh,
   rangeLow,
   height = 280,
@@ -1641,17 +1622,9 @@ var VortexConeChart = ({
   showWatermark = true,
   theme = {}
 }) => {
-  const containerRef = (0, import_react3.useRef)(null);
-  const canvasRef = (0, import_react3.useRef)(null);
-  const [containerWidth, setContainerWidth] = (0, import_react3.useState)(600);
-  const [hover, setHover] = (0, import_react3.useState)(null);
-  const [ruler, setRuler] = (0, import_react3.useState)({
-    active: false,
-    startPoint: null,
-    currentPoint: null
-  });
-  const mergedColors = (0, import_react3.useMemo)(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
-  const resolvedCandles = (0, import_react3.useMemo)(() => {
+  const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
+  const mergedColors = (0, import_react6.useMemo)(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
+  const resolvedCandles = (0, import_react6.useMemo)(() => {
     const raw = candles || historicalCandles || [];
     return Array.from(
       new Map(raw.map((c) => [c.t, c])).values()
@@ -1662,23 +1635,9 @@ var VortexConeChart = ({
   const resolvedLow = rangeLow ?? targetRange?.low ?? (expectedMove ? resolvedSpot - expectedMove.moveAbs : 0);
   const resolvedExpDate = expirationDate || expectedMove?.expiration || "Expiry";
   const resolvedDte = dte ?? expectedMove?.dte ?? 1;
-  (0, import_react3.useEffect)(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    setContainerWidth(el.clientWidth || 600);
-    const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.contentRect.width > 0) {
-          setContainerWidth(entry.contentRect.width);
-        }
-      }
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
   const futureStepCount = Math.max(2, Math.min(6, resolvedDte));
   const totalSlots = resolvedCandles.length + futureStepCount;
-  const bounds = (0, import_react3.useMemo)(() => {
+  const bounds = (0, import_react6.useMemo)(() => {
     const prices = [];
     resolvedCandles.forEach((c) => prices.push(c.close));
     if (resolvedSpot > 0) prices.push(resolvedSpot);
@@ -1686,13 +1645,13 @@ var VortexConeChart = ({
     if (resolvedLow > 0) prices.push(resolvedLow);
     return computeBounds(prices, containerWidth, height);
   }, [resolvedCandles, resolvedSpot, resolvedHigh, resolvedLow, containerWidth, height]);
-  const histPoints = (0, import_react3.useMemo)(() => {
+  const histPoints = (0, import_react6.useMemo)(() => {
     return resolvedCandles.map((c, idx) => ({
       x: indexToX(idx, totalSlots, bounds),
       price: c.close
     }));
   }, [resolvedCandles, totalSlots, bounds]);
-  const timeLabels = (0, import_react3.useMemo)(() => {
+  const timeLabels = (0, import_react6.useMemo)(() => {
     if (resolvedCandles.length === 0) return [];
     const labels = [];
     const maxHistLabels = Math.max(2, Math.floor(containerWidth / 150));
@@ -1706,7 +1665,7 @@ var VortexConeChart = ({
     labels.push({ x: expiryX, text: resolvedExpDate });
     return labels;
   }, [resolvedCandles, totalSlots, bounds, containerWidth, resolvedExpDate]);
-  const priceLines = (0, import_react3.useMemo)(() => {
+  const priceLines = (0, import_react6.useMemo)(() => {
     const list = [];
     if (resolvedHigh > 0) {
       list.push({
@@ -1740,7 +1699,15 @@ var VortexConeChart = ({
     }
     return list;
   }, [resolvedHigh, resolvedLow, resolvedSpot, mergedColors]);
-  (0, import_react3.useEffect)(() => {
+  const { hover, ruler, pointerHandlers } = useChartPointer({
+    canvasRef,
+    bounds,
+    visible: resolvedCandles,
+    // Hit-testing spans history + future projection slots
+    slotCount: totalSlots,
+    panZoom: false
+  });
+  (0, import_react6.useEffect)(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const setup = setupCanvasDpi(canvas, containerWidth, height);
@@ -1792,92 +1759,22 @@ var VortexConeChart = ({
     if (showWatermark) {
       drawVortexWatermark(ctx, bounds);
     }
+  }, [containerWidth, height, dpr, bounds, histPoints, resolvedSpot, resolvedHigh, resolvedLow, totalSlots, priceLines, timeLabels, showWatermark, mergedColors, canvasRef]);
+  (0, import_react6.useEffect)(() => {
+    const canvas = overlayRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
     if (ruler.active) {
       drawRulerOverlay(ctx, bounds, ruler);
     }
     if (hover && hover.candle && !ruler.active) {
-      const cursorPrice = yToPrice(hover.mouseY, bounds);
-      const timeStr = formatCandleTime(hover.candle.t, false);
-      drawCrosshair(ctx, bounds, hover, cursorPrice, timeStr);
+      drawCrosshair(ctx, bounds, hover, formatCandleTime(hover.candle.t, false));
     }
-  }, [
-    containerWidth,
-    height,
-    bounds,
-    histPoints,
-    resolvedSpot,
-    resolvedHigh,
-    resolvedLow,
-    totalSlots,
-    priceLines,
-    timeLabels,
-    hover,
-    ruler,
-    showWatermark,
-    mergedColors
-  ]);
-  const handleMouseDown = (e) => {
-    if (!e.shiftKey) return;
-    const canvas = canvasRef.current;
-    if (!canvas || resolvedCandles.length === 0) return;
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    const idx = xToIndex(mouseX, totalSlots, bounds);
-    const candle = resolvedCandles[idx] || null;
-    const price = yToPrice(mouseY, bounds);
-    const point = {
-      x: mouseX,
-      y: mouseY,
-      price,
-      time: candle?.t,
-      index: idx
-    };
-    setRuler({
-      active: true,
-      startPoint: point,
-      currentPoint: point
-    });
-  };
-  const handleMouseMove = (e) => {
-    const canvas = canvasRef.current;
-    if (!canvas || resolvedCandles.length === 0) return;
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    const idx = xToIndex(mouseX, totalSlots, bounds);
-    const candle = resolvedCandles[idx] || null;
-    const price = yToPrice(mouseY, bounds);
-    if (ruler.active && ruler.startPoint) {
-      setRuler((prev) => ({
-        ...prev,
-        currentPoint: {
-          x: mouseX,
-          y: mouseY,
-          price,
-          time: candle?.t,
-          index: idx
-        }
-      }));
-      return;
-    }
-    setHover({ mouseX, mouseY, index: idx, candle });
-  };
-  const handleMouseUp = () => {
-  };
-  const handleMouseLeave = () => {
-    setHover(null);
-  };
-  (0, import_react3.useEffect)(() => {
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") {
-        setRuler({ active: false, startPoint: null, currentPoint: null });
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-  const spotDiff = (0, import_react3.useMemo)(() => {
+  }, [containerWidth, height, dpr, bounds, hover, ruler, overlayRef]);
+  const spotDiff = (0, import_react6.useMemo)(() => {
     if (!hover?.candle || resolvedSpot <= 0) return null;
     const diff = hover.candle.close - resolvedSpot;
     const pct = diff / resolvedSpot * 100;
@@ -1894,21 +1791,21 @@ var VortexConeChart = ({
       ref: containerRef,
       className: `relative w-full overflow-hidden select-none group ${className}`,
       style: { height },
-      onClick: () => {
-        if (ruler.active && !ruler.startPoint) {
-          setRuler({ active: false, startPoint: null, currentPoint: null });
-        }
-      },
       children: [
         /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
           "canvas",
           {
             ref: canvasRef,
-            onMouseDown: handleMouseDown,
-            onMouseMove: handleMouseMove,
-            onMouseUp: handleMouseUp,
-            onMouseLeave: handleMouseLeave,
-            className: "cursor-crosshair block w-full h-full"
+            ...pointerHandlers,
+            className: "cursor-crosshair block h-full w-full",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+          "canvas",
+          {
+            ref: overlayRef,
+            className: "pointer-events-none absolute inset-0 block"
           }
         ),
         hover && hover.candle && !ruler.active && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-2.5 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl tabular-nums", children: [
@@ -1956,6 +1853,9 @@ var VortexConeChart = ({
   isViewportZoomed,
   panViewport,
   resetViewport,
+  useChartPointer,
+  useChartSurface,
+  useChartViewport,
   viewportIndexToX,
   viewportXToIndex,
   zoomViewport
