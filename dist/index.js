@@ -1047,6 +1047,8 @@ function useChartPointer({
   useEffect3(() => {
     const canvas = canvasRef.current;
     if (!canvas || !panZoom) return;
+    let wheelRaf = 0;
+    let pending = null;
     const onWheel = (e) => {
       e.preventDefault();
       const b = boundsRef.current;
@@ -1054,10 +1056,23 @@ function useChartPointer({
       const mouseX = e.clientX - rect.left;
       const anchorRatio = (mouseX - b.padding.left) / b.plotWidth;
       const factor = e.deltaY < 0 ? 1.15 : 0.85;
-      viewportChangeRef.current?.(zoomViewportByAnchor(factor, anchorRatio));
+      pending = { factor, anchorRatio };
+      if (wheelRaf) return;
+      wheelRaf = requestAnimationFrame(() => {
+        wheelRaf = 0;
+        const p = pending;
+        pending = null;
+        if (!p) return;
+        const next = zoomViewportByAnchor(p.factor, p.anchorRatio);
+        liveViewportRef.current = next;
+        viewportChangeRef.current?.(next);
+      });
     };
     canvas.addEventListener("wheel", onWheel, { passive: false });
-    return () => canvas.removeEventListener("wheel", onWheel);
+    return () => {
+      cancelAnimationFrame(wheelRaf);
+      canvas.removeEventListener("wheel", onWheel);
+    };
   }, [canvasRef, panZoom]);
   const liveViewportRef = useRef2(viewport);
   useEffect3(() => {
@@ -1214,6 +1229,7 @@ function useCrosshairSync({ group, localTime, onRemoteTime }) {
 
 // src/components/VortexCandleChart.tsx
 import { Fragment, jsx as jsx3, jsxs as jsxs3 } from "react/jsx-runtime";
+var EMPTY_COLORS = {};
 var VortexCandleChart = ({
   candles,
   priceLines = [],
@@ -1242,7 +1258,10 @@ var VortexCandleChart = ({
     mode: viewportMode,
     initialVisibleBars
   });
-  const mergedColors = useMemo(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
+  const mergedColors = useMemo(
+    () => ({ ...VORTEX_THEME.colors, ...theme.colors ?? EMPTY_COLORS }),
+    [theme.colors]
+  );
   const visibleCandles = useMemo(() => {
     if (sortedCandles.length === 0) return [];
     const start = Math.max(0, Math.min(viewport.startIndex, sortedCandles.length - 1));
@@ -1608,6 +1627,7 @@ function drawLineSeries(ctx, points, bounds, options) {
 
 // src/components/VortexRangeChart.tsx
 import { Fragment as Fragment2, jsx as jsx4, jsxs as jsxs4 } from "react/jsx-runtime";
+var EMPTY_COLORS2 = {};
 var VortexRangeChart = ({
   candles,
   priorDay,
@@ -1626,7 +1646,10 @@ var VortexRangeChart = ({
   }, [candles]);
   const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
   const { viewport, setViewport, zoomIn, zoomOut, resetView, isZoomed, zoomLevel } = useChartViewport(sortedCandles.length, 12);
-  const mergedColors = useMemo2(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
+  const mergedColors = useMemo2(
+    () => ({ ...VORTEX_THEME.colors, ...theme.colors ?? EMPTY_COLORS2 }),
+    [theme.colors]
+  );
   const visibleCandles = useMemo2(() => {
     if (sortedCandles.length === 0) return [];
     const start = Math.max(0, Math.min(viewport.startIndex, sortedCandles.length - 1));
@@ -1880,6 +1903,7 @@ var VortexRangeChart = ({
 // src/components/VortexConeChart.tsx
 import { useEffect as useEffect7, useMemo as useMemo3 } from "react";
 import { Fragment as Fragment3, jsx as jsx5, jsxs as jsxs5 } from "react/jsx-runtime";
+var EMPTY_COLORS3 = {};
 var VortexConeChart = ({
   candles,
   historicalCandles,
@@ -1897,7 +1921,10 @@ var VortexConeChart = ({
   theme = {}
 }) => {
   const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
-  const mergedColors = useMemo3(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
+  const mergedColors = useMemo3(
+    () => ({ ...VORTEX_THEME.colors, ...theme.colors ?? EMPTY_COLORS3 }),
+    [theme.colors]
+  );
   const resolvedCandles = useMemo3(() => {
     const raw = candles || historicalCandles || [];
     return Array.from(

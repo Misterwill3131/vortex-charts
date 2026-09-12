@@ -110,6 +110,14 @@ export function useChartPointer({
     const canvas = canvasRef.current;
     if (!canvas || !panZoom) return;
 
+    // Coalesce wheel events through requestAnimationFrame: trackpads and
+    // high-resolution mice fire several events per frame; applying a zoom
+    // step (full canvas redraw) per event starved the render loop. Also
+    // chain the result into liveViewportRef so consecutive frames zoom
+    // from the latest state instead of a stale ref.
+    let wheelRaf = 0;
+    let pending: { factor: number; anchorRatio: number } | null = null;
+
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const b = boundsRef.current;
@@ -117,11 +125,24 @@ export function useChartPointer({
       const mouseX = e.clientX - rect.left;
       const anchorRatio = (mouseX - b.padding.left) / b.plotWidth;
       const factor = e.deltaY < 0 ? 1.15 : 0.85;
-      viewportChangeRef.current?.(zoomViewportByAnchor(factor, anchorRatio));
+      pending = { factor, anchorRatio };
+      if (wheelRaf) return;
+      wheelRaf = requestAnimationFrame(() => {
+        wheelRaf = 0;
+        const p = pending;
+        pending = null;
+        if (!p) return;
+        const next = zoomViewportByAnchor(p.factor, p.anchorRatio);
+        liveViewportRef.current = next;
+        viewportChangeRef.current?.(next);
+      });
     };
 
     canvas.addEventListener("wheel", onWheel, { passive: false });
-    return () => canvas.removeEventListener("wheel", onWheel);
+    return () => {
+      cancelAnimationFrame(wheelRaf);
+      canvas.removeEventListener("wheel", onWheel);
+    };
   }, [canvasRef, panZoom]);
 
   // zoomViewport needs the current viewport; go through a ref to avoid re-attaching the listener

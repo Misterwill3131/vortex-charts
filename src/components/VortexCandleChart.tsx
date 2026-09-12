@@ -24,8 +24,7 @@ import { useChartPointer } from "../hooks/useChartPointer";
 import { useCrosshairSync } from "../hooks/useCrosshairSync";
 import { formatCandleTime, formatPrice } from "../utils/chart-defaults";
 
-export interface VortexCandleChartProps {
-  candles: Candle[];
+export interface VortexCandleChartProps {  candles: Candle[];
   priceLines?: PriceLine[];
   swingHigh?: number;
   swingLow?: number;
@@ -62,6 +61,13 @@ export interface VortexCandleChartProps {
   theme?: VortexThemeOverride;
 }
 
+// Module-level fallback so the merged-colors memo keeps a STABLE identity when
+// no theme is passed. With the old `dep: [theme]` + `theme = {}` default, the
+// memo was invalidated on every render and the main canvas effect (which
+// depends on mergedColors) fully redrew the candles at pointermove frame
+// rate — the root cause of the /account/levels FPS loss.
+const EMPTY_COLORS = {} as Record<string, never>;
+
 export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
   candles,
   priceLines = [],
@@ -97,7 +103,10 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
       initialVisibleBars,
     });
 
-  const mergedColors = useMemo(() => ({ ...VORTEX_THEME.colors, ...(theme.colors || {}) }), [theme]);
+  const mergedColors = useMemo(
+    () => ({ ...VORTEX_THEME.colors, ...(theme.colors ?? EMPTY_COLORS) }),
+    [theme.colors]
+  );
 
   // Slice visible candles according to viewport
   const visibleCandles = useMemo(() => {

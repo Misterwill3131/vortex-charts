@@ -32,6 +32,10 @@ export interface VortexRangeChartProps {
   theme?: VortexThemeOverride;
 }
 
+// Stable fallback: keeps the merged-colors memo identity stable across
+// renders when no theme is passed (prevents full canvas redraws per render).
+const EMPTY_COLORS = {} as Record<string, never>;
+
 export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
   candles,
   priorDay,
@@ -57,7 +61,10 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
   const { viewport, setViewport, zoomIn, zoomOut, resetView, isZoomed, zoomLevel } =
     useChartViewport(sortedCandles.length, 12);
 
-  const mergedColors = useMemo(() => ({ ...VORTEX_THEME.colors, ...(theme.colors || {}) }), [theme]);
+  const mergedColors = useMemo(
+    () => ({ ...VORTEX_THEME.colors, ...(theme.colors ?? EMPTY_COLORS) }),
+    [theme.colors]
+  );
 
   // Slice visible candles according to viewport
   const visibleCandles = useMemo(() => {

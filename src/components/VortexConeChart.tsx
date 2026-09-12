@@ -30,6 +30,10 @@ export interface VortexConeChartProps {
   theme?: VortexThemeOverride;
 }
 
+// Stable fallback: keeps the merged-colors memo identity stable across
+// renders when no theme is passed (prevents full canvas redraws per render).
+const EMPTY_COLORS = {} as Record<string, never>;
+
 export const VortexConeChart: React.FC<VortexConeChartProps> = ({
   candles,
   historicalCandles,
@@ -49,7 +53,10 @@ export const VortexConeChart: React.FC<VortexConeChartProps> = ({
   // â”€â”€ Surface: container refs, width tracking, devicePixelRatio â”€â”€
   const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
 
-  const mergedColors = useMemo(() => ({ ...VORTEX_THEME.colors, ...(theme.colors || {}) }), [theme]);
+  const mergedColors = useMemo(
+    () => ({ ...VORTEX_THEME.colors, ...(theme.colors ?? EMPTY_COLORS) }),
+    [theme.colors]
+  );
 
   // Resolve normalized inputs
   const resolvedCandles = useMemo(() => {
