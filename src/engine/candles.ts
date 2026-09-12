@@ -1,6 +1,6 @@
 import type { Candle } from "../types";
-import type { ChartBounds } from "./coordinates";
-import { indexToX, priceToY } from "./coordinates";
+import type { ChartBounds, TimeScaleMapping } from "./coordinates";
+import { indexToX, priceToY, timeToX } from "./coordinates";
 
 export interface CandleStyle {
   upColor: string;
@@ -16,18 +16,33 @@ export function drawCandlesticks(
   ctx: CanvasRenderingContext2D,
   candles: Candle[],
   bounds: ChartBounds,
-  style: CandleStyle = DEFAULT_CANDLE_STYLE
+  style: CandleStyle = DEFAULT_CANDLE_STYLE,
+  timeScale?: TimeScaleMapping | null
 ) {
   if (candles.length === 0) return;
 
   const count = candles.length;
-  const candleSlotWidth = bounds.plotWidth / count;
-  const candleBodyWidth = Math.max(2, Math.min(22, Math.floor(candleSlotWidth * 0.72)));
+  const xOf = (idx: number): number =>
+    timeScale ? timeToX(candles[idx].t, timeScale, bounds) : indexToX(idx, count, bounds);
+
+  // In time mode the body width derives from the smallest mapped gap between
+  // consecutive candles, so dense sessions keep readable bodies while gaps
+  // (weekends, market pauses) render as proportional empty space.
+  let slotWidth = bounds.plotWidth / count;
+  if (timeScale) {
+    let minGap = Infinity;
+    for (let i = 1; i < count; i++) {
+      const gap = xOf(i) - xOf(i - 1);
+      if (gap > 0 && gap < minGap) minGap = gap;
+    }
+    if (isFinite(minGap)) slotWidth = Math.min(slotWidth, minGap);
+  }
+  const candleBodyWidth = Math.max(2, Math.min(22, Math.floor(slotWidth * 0.72)));
 
   ctx.save();
 
   candles.forEach((c, idx) => {
-    const x = Math.round(indexToX(idx, count, bounds));
+    const x = Math.round(xOf(idx));
     const isUp = c.close >= c.open;
     const color = isUp ? style.upColor : style.downColor;
 

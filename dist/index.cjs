@@ -37,19 +37,26 @@ __export(index_exports, {
   getVisibleCount: () => getVisibleCount,
   getZoomLevel: () => getZoomLevel,
   isViewportZoomed: () => isViewportZoomed,
+  measureTextWidth: () => measureTextWidth,
+  nearestTimeIndex: () => nearestTimeIndex,
   panViewport: () => panViewport,
+  publishCrosshairSync: () => publishCrosshairSync,
   resetViewport: () => resetViewport,
+  subscribeCrosshairSync: () => subscribeCrosshairSync,
+  timeToX: () => timeToX,
   useChartPointer: () => useChartPointer,
   useChartSurface: () => useChartSurface,
   useChartViewport: () => useChartViewport,
+  useCrosshairSync: () => useCrosshairSync,
   viewportIndexToX: () => viewportIndexToX,
   viewportXToIndex: () => viewportXToIndex,
+  xToTime: () => xToTime,
   zoomViewport: () => zoomViewport
 });
 module.exports = __toCommonJS(index_exports);
 
 // src/components/VortexCandleChart.tsx
-var import_react4 = require("react");
+var import_react5 = require("react");
 
 // src/theme/tokens.ts
 var VORTEX_THEME = {
@@ -145,6 +152,32 @@ function xToIndex(x, totalCount, bounds) {
   const step = plotWidth / totalCount;
   const raw = Math.floor((x - padding.left) / step);
   return Math.max(0, Math.min(totalCount - 1, raw));
+}
+function timeToX(t, scale, bounds) {
+  const span = scale.tMax - scale.tMin;
+  if (span <= 0) return bounds.padding.left + bounds.plotWidth / 2;
+  const ratio = (t - scale.tMin) / span;
+  return bounds.padding.left + ratio * bounds.plotWidth;
+}
+function xToTime(x, scale, bounds) {
+  const span = scale.tMax - scale.tMin;
+  if (span <= 0) return scale.tMin;
+  const ratio = (x - bounds.padding.left) / bounds.plotWidth;
+  return scale.tMin + ratio * span;
+}
+function nearestTimeIndex(items, target) {
+  if (items.length === 0) return -1;
+  let lo = 0;
+  let hi = items.length - 1;
+  while (lo < hi) {
+    const mid = lo + hi >> 1;
+    if (items[mid].t < target) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo > 0 && Math.abs(items[lo - 1].t - target) <= Math.abs(items[lo].t - target)) {
+    return lo - 1;
+  }
+  return lo;
 }
 function viewportIndexToX(globalIndex, viewport, bounds) {
   const visibleCount = Math.max(1, viewport.endIndex - viewport.startIndex + 1);
@@ -243,14 +276,23 @@ var DEFAULT_CANDLE_STYLE = {
   downColor: "#f43f5e"
   // Bearish Rose
 };
-function drawCandlesticks(ctx, candles, bounds, style = DEFAULT_CANDLE_STYLE) {
+function drawCandlesticks(ctx, candles, bounds, style = DEFAULT_CANDLE_STYLE, timeScale) {
   if (candles.length === 0) return;
   const count = candles.length;
-  const candleSlotWidth = bounds.plotWidth / count;
-  const candleBodyWidth = Math.max(2, Math.min(22, Math.floor(candleSlotWidth * 0.72)));
+  const xOf = (idx) => timeScale ? timeToX(candles[idx].t, timeScale, bounds) : indexToX(idx, count, bounds);
+  let slotWidth = bounds.plotWidth / count;
+  if (timeScale) {
+    let minGap = Infinity;
+    for (let i = 1; i < count; i++) {
+      const gap = xOf(i) - xOf(i - 1);
+      if (gap > 0 && gap < minGap) minGap = gap;
+    }
+    if (isFinite(minGap)) slotWidth = Math.min(slotWidth, minGap);
+  }
+  const candleBodyWidth = Math.max(2, Math.min(22, Math.floor(slotWidth * 0.72)));
   ctx.save();
   candles.forEach((c, idx) => {
-    const x = Math.round(indexToX(idx, count, bounds));
+    const x = Math.round(xOf(idx));
     const isUp = c.close >= c.open;
     const color = isUp ? style.upColor : style.downColor;
     const yHigh = Math.round(priceToY(c.high, bounds));
@@ -270,6 +312,20 @@ function drawCandlesticks(ctx, candles, bounds, style = DEFAULT_CANDLE_STYLE) {
     ctx.fillRect(xBodyLeft, yBodyTop, candleBodyWidth, bodyHeight);
   });
   ctx.restore();
+}
+
+// src/engine/text-cache.ts
+var cache = /* @__PURE__ */ new Map();
+var MAX_ENTRIES = 2e3;
+function measureTextWidth(ctx, text) {
+  const key = `${ctx.font}\0${text}`;
+  let width = cache.get(key);
+  if (width === void 0) {
+    width = ctx.measureText(text).width;
+    if (cache.size >= MAX_ENTRIES) cache.clear();
+    cache.set(key, width);
+  }
+  return width;
 }
 
 // src/engine/price-lines.ts
@@ -299,7 +355,7 @@ function drawPriceLines(ctx, lines, bounds) {
       ctx.save();
       ctx.setLineDash([]);
       ctx.font = "10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-      const textWidth = ctx.measureText(line.title).width;
+      const textWidth = measureTextWidth(ctx, line.title);
       const tagX = rightAxisX - textWidth - 10;
       const tagY = y - 7;
       ctx.fillStyle = "rgba(2, 6, 22, 0.75)";
@@ -315,7 +371,7 @@ function drawPriceLines(ctx, lines, bounds) {
       ctx.setLineDash([]);
       const labelText = formatPrice(line.price);
       ctx.font = "bold 10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-      const labelWidth = ctx.measureText(labelText).width;
+      const labelWidth = measureTextWidth(ctx, labelText);
       const pillWidth = labelWidth + 10;
       const pillHeight = 16;
       const pillX = rightAxisX + 4;
@@ -347,7 +403,7 @@ function drawVortexWatermark(ctx, bounds, opacity = 0.5) {
   ctx.font = "bold 11px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   ctx.fillStyle = "#ffffff";
   ctx.fillText("VorteX", x, y);
-  const vortexWidth = ctx.measureText("VorteX").width;
+  const vortexWidth = measureTextWidth(ctx, "VorteX");
   ctx.font = "600 11px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   ctx.fillStyle = "#38bdf8";
   ctx.fillText("bot.app", x + vortexWidth, y);
@@ -406,7 +462,7 @@ function drawCrosshair(ctx, bounds, hover, timeText) {
   ctx.setLineDash([]);
   ctx.font = "bold 10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const priceText = `$${formatPrice(cursorPrice)}`;
-  const textW = ctx.measureText(priceText).width;
+  const textW = measureTextWidth(ctx, priceText);
   const pillW = textW + 10;
   const pillH = 16;
   const pillX = rightAxisX + 4;
@@ -421,7 +477,7 @@ function drawCrosshair(ctx, bounds, hover, timeText) {
   ctx.fillText(priceText, pillX + pillW / 2, pillY + pillH / 2);
   if (timeText) {
     ctx.font = "10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-    const timeW = ctx.measureText(timeText).width + 12;
+    const timeW = measureTextWidth(ctx, timeText) + 12;
     const timeH = 16;
     const timeX = Math.round(snapX - timeW / 2);
     const timeY = bottomAxisY + 4;
@@ -437,6 +493,21 @@ function drawCrosshair(ctx, bounds, hover, timeText) {
     ctx.textBaseline = "middle";
     ctx.fillText(timeText, timeX + timeW / 2, timeY + timeH / 2);
   }
+  ctx.restore();
+}
+function drawRemoteCrosshair(ctx, bounds, x) {
+  const { chartWidth, chartHeight, padding } = bounds;
+  const rightAxisX = chartWidth - padding.right;
+  const bottomAxisY = chartHeight - padding.bottom;
+  if (x < padding.left || x > rightAxisX) return;
+  ctx.save();
+  ctx.setLineDash([2, 4]);
+  ctx.strokeStyle = "rgba(56, 189, 248, 0.35)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(Math.round(x) + 0.5, padding.top);
+  ctx.lineTo(Math.round(x) + 0.5, bottomAxisY);
+  ctx.stroke();
   ctx.restore();
 }
 function formatVolume(volume) {
@@ -497,7 +568,7 @@ function drawRulerOverlay(ctx, bounds, ruler) {
   const barsText = `${barsCount} bar${barsCount !== 1 ? "s" : ""}`;
   const fullText = `${priceText}  \u2022  ${barsText}`;
   ctx.font = "bold 11px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-  const textWidth = ctx.measureText(fullText).width;
+  const textWidth = measureTextWidth(ctx, fullText);
   const badgeW = textWidth + 16;
   const badgeH = 22;
   let badgeX = x2 - badgeW / 2;
@@ -848,6 +919,7 @@ function useChartPointer({
   visible,
   slotCount,
   indexOffset = 0,
+  timeScale = null,
   panZoom = false,
   viewport,
   onViewportChange
@@ -914,9 +986,20 @@ function useChartPointer({
   }
   const hitTest = (mouseX, mouseY) => {
     const count = slotCount ?? visible.length;
-    const localIdx = xToIndex(mouseX, count, bounds);
+    let localIdx;
+    if (timeScale && visible.length > 0) {
+      localIdx = nearestTimeIndex(visible, xToTime(mouseX, timeScale, bounds));
+    } else {
+      localIdx = xToIndex(mouseX, count, bounds);
+    }
+    if (localIdx < 0) {
+      const centerX = bounds.padding.left + bounds.plotWidth / 2;
+      return { candle: null, snapX: centerX, price: yToPrice(mouseY, bounds), globalIndex: -1 };
+    }
     const candle = visible[localIdx] ?? null;
-    const snapX = indexToX(localIdx, count, bounds);
+    const snapX = Math.round(
+      timeScale && candle ? timeToX(candle.t, timeScale, bounds) : indexToX(localIdx, count, bounds)
+    );
     const price = yToPrice(mouseY, bounds);
     const globalIndex = indexOffset + localIdx;
     return { candle, snapX, price, globalIndex };
@@ -1000,6 +1083,53 @@ function useChartPointer({
   };
 }
 
+// src/hooks/useCrosshairSync.ts
+var import_react4 = require("react");
+
+// src/engine/crosshair-sync.ts
+var groups = /* @__PURE__ */ new Map();
+function subscribeCrosshairSync(group, listener) {
+  let listeners = groups.get(group);
+  if (!listeners) {
+    listeners = /* @__PURE__ */ new Set();
+    groups.set(group, listeners);
+  }
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) groups.delete(group);
+  };
+}
+function publishCrosshairSync(group, event) {
+  const listeners = groups.get(group);
+  if (!listeners) return;
+  for (const listener of listeners) {
+    listener(event);
+  }
+}
+
+// src/hooks/useCrosshairSync.ts
+function useCrosshairSync({ group, localTime, onRemoteTime }) {
+  const sourceId = (0, import_react4.useId)();
+  const onRemoteRef = (0, import_react4.useRef)(onRemoteTime);
+  (0, import_react4.useEffect)(() => {
+    onRemoteRef.current = onRemoteTime;
+  });
+  (0, import_react4.useEffect)(() => {
+    if (!group) return;
+    publishCrosshairSync(group, { time: localTime, sourceId });
+  }, [group, localTime, sourceId]);
+  (0, import_react4.useEffect)(() => {
+    if (!group) return;
+    return subscribeCrosshairSync(group, (event) => {
+      if (event.sourceId !== sourceId) {
+        onRemoteRef.current(event.time);
+      }
+    });
+  }, [group, sourceId]);
+  return { sourceId };
+}
+
 // src/components/VortexCandleChart.tsx
 var import_jsx_runtime3 = require("react/jsx-runtime");
 var VortexCandleChart = ({
@@ -1014,21 +1144,23 @@ var VortexCandleChart = ({
   isIntraday = false,
   showWatermark = true,
   showControls = true,
+  timeScale = false,
+  crosshairSyncGroup,
   theme = {}
 }) => {
-  const sortedCandles = (0, import_react4.useMemo)(() => {
+  const sortedCandles = (0, import_react5.useMemo)(() => {
     return Array.from(new Map(candles.map((c) => [c.t, c])).values()).sort((a, b) => a.t - b.t);
   }, [candles]);
   const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
   const { viewport, setViewport, zoomIn, zoomOut, resetView, isZoomed, zoomLevel } = useChartViewport(sortedCandles.length, 6);
-  const mergedColors = (0, import_react4.useMemo)(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
-  const visibleCandles = (0, import_react4.useMemo)(() => {
+  const mergedColors = (0, import_react5.useMemo)(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
+  const visibleCandles = (0, import_react5.useMemo)(() => {
     if (sortedCandles.length === 0) return [];
     const start = Math.max(0, Math.min(viewport.startIndex, sortedCandles.length - 1));
     const end = Math.max(start, Math.min(viewport.endIndex, sortedCandles.length - 1));
     return sortedCandles.slice(start, end + 1);
   }, [sortedCandles, viewport.startIndex, viewport.endIndex]);
-  const bounds = (0, import_react4.useMemo)(() => {
+  const bounds = (0, import_react5.useMemo)(() => {
     const prices = [];
     visibleCandles.forEach((c) => prices.push(c.high, c.low));
     const lines = [...priceLines];
@@ -1091,7 +1223,13 @@ var VortexCandleChart = ({
   }, [visibleCandles, priceLines, swingHigh, swingLow, spotPrice, atrBounds, mergedColors, containerWidth, height]);
   const chartBounds = bounds.computed;
   const allLines = bounds.lines;
-  const timeLabels = (0, import_react4.useMemo)(() => {
+  const timeScaleMapping = (0, import_react5.useMemo)(() => {
+    if (!timeScale || visibleCandles.length < 2) return null;
+    const tMin = visibleCandles[0].t;
+    const tMax = visibleCandles[visibleCandles.length - 1].t;
+    return tMax > tMin ? { tMin, tMax } : null;
+  }, [timeScale, visibleCandles]);
+  const timeLabels = (0, import_react5.useMemo)(() => {
     if (visibleCandles.length === 0) return [];
     const count = visibleCandles.length;
     const maxLabels = Math.max(3, Math.min(6, Math.floor(containerWidth / 120)));
@@ -1099,25 +1237,32 @@ var VortexCandleChart = ({
     const labels = [];
     for (let i = 0; i < count; i += step) {
       const c = visibleCandles[i];
-      const x = indexToX(i, count, chartBounds);
+      const x = timeScaleMapping ? timeToX(c.t, timeScaleMapping, chartBounds) : indexToX(i, count, chartBounds);
       labels.push({ x, text: formatCandleTime(c.t, isIntraday) });
     }
     return labels;
-  }, [visibleCandles, containerWidth, chartBounds, isIntraday]);
+  }, [visibleCandles, containerWidth, chartBounds, isIntraday, timeScaleMapping]);
   const { hover, ruler, isRulerToolActive, toggleRuler, clearRuler, pointerHandlers } = useChartPointer({
     canvasRef,
     bounds: chartBounds,
     visible: visibleCandles,
     indexOffset: viewport.startIndex,
+    timeScale: timeScaleMapping,
     panZoom: true,
     viewport,
     onViewportChange: setViewport
+  });
+  const [remoteHoverTime, setRemoteHoverTime] = (0, import_react5.useState)(null);
+  useCrosshairSync({
+    group: crosshairSyncGroup,
+    localTime: hover?.candle?.t ?? null,
+    onRemoteTime: setRemoteHoverTime
   });
   const handleReset = () => {
     resetView();
     clearRuler();
   };
-  (0, import_react4.useEffect)(() => {
+  (0, import_react5.useEffect)(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const setup = setupCanvasDpi(canvas, containerWidth, height);
@@ -1125,16 +1270,22 @@ var VortexCandleChart = ({
     const { ctx } = setup;
     ctx.clearRect(0, 0, containerWidth, height);
     drawGridAndAxes(ctx, chartBounds, timeLabels);
-    drawCandlesticks(ctx, visibleCandles, chartBounds, {
-      upColor: mergedColors.bullish,
-      downColor: mergedColors.bearish
-    });
+    drawCandlesticks(
+      ctx,
+      visibleCandles,
+      chartBounds,
+      {
+        upColor: mergedColors.bullish,
+        downColor: mergedColors.bearish
+      },
+      timeScaleMapping
+    );
     drawPriceLines(ctx, allLines, chartBounds);
     if (showWatermark) {
       drawVortexWatermark(ctx, chartBounds);
     }
-  }, [containerWidth, height, dpr, chartBounds, visibleCandles, allLines, timeLabels, showWatermark, mergedColors, canvasRef]);
-  (0, import_react4.useEffect)(() => {
+  }, [containerWidth, height, dpr, chartBounds, visibleCandles, allLines, timeLabels, timeScaleMapping, showWatermark, mergedColors, canvasRef]);
+  (0, import_react5.useEffect)(() => {
     const canvas = overlayRef.current;
     if (!canvas) return;
     const setup = setupCanvasDpi(canvas, containerWidth, height);
@@ -1147,8 +1298,20 @@ var VortexCandleChart = ({
     if (hover && hover.candle && !ruler.active) {
       drawCrosshair(ctx, chartBounds, hover, formatCandleTime(hover.candle.t, isIntraday));
     }
-  }, [containerWidth, height, dpr, chartBounds, hover, ruler, isIntraday, overlayRef]);
-  const hoverMetrics = (0, import_react4.useMemo)(() => {
+    if (!hover && remoteHoverTime != null && visibleCandles.length > 0) {
+      const idx = nearestTimeIndex(visibleCandles, remoteHoverTime);
+      const c = idx >= 0 ? visibleCandles[idx] : null;
+      if (c) {
+        const tSpan = visibleCandles[visibleCandles.length - 1].t - visibleCandles[0].t;
+        const avgGap = tSpan / Math.max(1, visibleCandles.length - 1);
+        if (Math.abs(c.t - remoteHoverTime) <= Math.max(avgGap, 6e4)) {
+          const x = timeScaleMapping ? timeToX(c.t, timeScaleMapping, chartBounds) : indexToX(idx, visibleCandles.length, chartBounds);
+          drawRemoteCrosshair(ctx, chartBounds, x);
+        }
+      }
+    }
+  }, [containerWidth, height, dpr, chartBounds, hover, ruler, remoteHoverTime, visibleCandles, timeScaleMapping, isIntraday, overlayRef]);
+  const hoverMetrics = (0, import_react5.useMemo)(() => {
     if (!hover?.candle) return null;
     const change = formatChange(hover.candle.open, hover.candle.close);
     const vol = formatVolume(hover.candle.volume);
@@ -1251,7 +1414,7 @@ var VortexCandleChart = ({
 };
 
 // src/components/VortexRangeChart.tsx
-var import_react5 = require("react");
+var import_react6 = require("react");
 
 // src/engine/boxes.ts
 function drawSessionBox(ctx, box, bounds) {
@@ -1288,7 +1451,7 @@ function drawSessionBox(ctx, box, bounds) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   const highText = `${box.prefix}H $${formatPrice(box.high)}`;
-  const highW = ctx.measureText(highText).width + 8;
+  const highW = measureTextWidth(ctx, highText) + 8;
   ctx.fillStyle = box.color;
   ctx.beginPath();
   ctx.roundRect(rightAxisX + 3, yHigh - 7, highW, 14, 3);
@@ -1296,7 +1459,7 @@ function drawSessionBox(ctx, box, bounds) {
   ctx.fillStyle = "#020616";
   ctx.fillText(highText, rightAxisX + 3 + highW / 2, yHigh);
   const lowText = `${box.prefix}L $${formatPrice(box.low)}`;
-  const lowW = ctx.measureText(lowText).width + 8;
+  const lowW = measureTextWidth(ctx, lowText) + 8;
   ctx.fillStyle = box.color;
   ctx.beginPath();
   ctx.roundRect(rightAxisX + 3, yLow - 7, lowW, 14, 3);
@@ -1363,21 +1526,22 @@ var VortexRangeChart = ({
   className = "",
   showWatermark = true,
   showControls = true,
+  crosshairSyncGroup,
   theme = {}
 }) => {
-  const sortedCandles = (0, import_react5.useMemo)(() => {
+  const sortedCandles = (0, import_react6.useMemo)(() => {
     return Array.from(new Map(candles.map((c) => [c.t, c])).values()).sort((a, b) => a.t - b.t);
   }, [candles]);
   const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
   const { viewport, setViewport, zoomIn, zoomOut, resetView, isZoomed, zoomLevel } = useChartViewport(sortedCandles.length, 12);
-  const mergedColors = (0, import_react5.useMemo)(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
-  const visibleCandles = (0, import_react5.useMemo)(() => {
+  const mergedColors = (0, import_react6.useMemo)(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
+  const visibleCandles = (0, import_react6.useMemo)(() => {
     if (sortedCandles.length === 0) return [];
     const start = Math.max(0, Math.min(viewport.startIndex, sortedCandles.length - 1));
     const end = Math.max(start, Math.min(viewport.endIndex, sortedCandles.length - 1));
     return sortedCandles.slice(start, end + 1);
   }, [sortedCandles, viewport.startIndex, viewport.endIndex]);
-  const bounds = (0, import_react5.useMemo)(() => {
+  const bounds = (0, import_react6.useMemo)(() => {
     const prices = [];
     visibleCandles.forEach((c) => prices.push(c.high, c.low));
     if (priorDay && priorDay.high > 0) prices.push(priorDay.high, priorDay.low);
@@ -1387,7 +1551,7 @@ var VortexRangeChart = ({
     });
     return computeBounds(prices, containerWidth, height);
   }, [visibleCandles, priorDay, premarket, vwapSeries, containerWidth, height]);
-  const timeLabels = (0, import_react5.useMemo)(() => {
+  const timeLabels = (0, import_react6.useMemo)(() => {
     if (visibleCandles.length === 0) return [];
     const count = visibleCandles.length;
     const maxLabels = Math.max(3, Math.min(6, Math.floor(containerWidth / 120)));
@@ -1400,7 +1564,7 @@ var VortexRangeChart = ({
     }
     return labels;
   }, [visibleCandles, containerWidth, bounds]);
-  const vwapPoints = (0, import_react5.useMemo)(() => {
+  const vwapPoints = (0, import_react6.useMemo)(() => {
     if (vwapSeries.length === 0 || visibleCandles.length === 0) return [];
     const points = [];
     const count = visibleCandles.length;
@@ -1430,11 +1594,17 @@ var VortexRangeChart = ({
     viewport,
     onViewportChange: setViewport
   });
+  const [remoteHoverTime, setRemoteHoverTime] = (0, import_react6.useState)(null);
+  useCrosshairSync({
+    group: crosshairSyncGroup,
+    localTime: hover?.candle?.t ?? null,
+    onRemoteTime: setRemoteHoverTime
+  });
   const handleReset = () => {
     resetView();
     clearRuler();
   };
-  (0, import_react5.useEffect)(() => {
+  (0, import_react6.useEffect)(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const setup = setupCanvasDpi(canvas, containerWidth, height);
@@ -1487,7 +1657,7 @@ var VortexRangeChart = ({
       drawVortexWatermark(ctx, bounds);
     }
   }, [containerWidth, height, dpr, bounds, visibleCandles, priorDay, premarket, vwapPoints, overlayMode, timeLabels, showWatermark, mergedColors, canvasRef]);
-  (0, import_react5.useEffect)(() => {
+  (0, import_react6.useEffect)(() => {
     const canvas = overlayRef.current;
     if (!canvas) return;
     const setup = setupCanvasDpi(canvas, containerWidth, height);
@@ -1500,8 +1670,20 @@ var VortexRangeChart = ({
     if (hover && hover.candle && !ruler.active) {
       drawCrosshair(ctx, bounds, hover, formatCandleTime(hover.candle.t, true));
     }
-  }, [containerWidth, height, dpr, bounds, hover, ruler, overlayRef]);
-  const hoverMetrics = (0, import_react5.useMemo)(() => {
+    if (!hover && remoteHoverTime != null && visibleCandles.length > 0) {
+      const idx = nearestTimeIndex(visibleCandles, remoteHoverTime);
+      const c = idx >= 0 ? visibleCandles[idx] : null;
+      if (c) {
+        const tSpan = visibleCandles[visibleCandles.length - 1].t - visibleCandles[0].t;
+        const avgGap = tSpan / Math.max(1, visibleCandles.length - 1);
+        if (Math.abs(c.t - remoteHoverTime) <= Math.max(avgGap, 6e4)) {
+          const x = indexToX(idx, visibleCandles.length, bounds);
+          drawRemoteCrosshair(ctx, bounds, x);
+        }
+      }
+    }
+  }, [containerWidth, height, dpr, bounds, hover, ruler, remoteHoverTime, visibleCandles, overlayRef]);
+  const hoverMetrics = (0, import_react6.useMemo)(() => {
     if (!hover?.candle) return null;
     const change = formatChange(hover.candle.open, hover.candle.close);
     const vol = formatVolume(hover.candle.volume);
@@ -1604,7 +1786,7 @@ var VortexRangeChart = ({
 };
 
 // src/components/VortexConeChart.tsx
-var import_react6 = require("react");
+var import_react7 = require("react");
 var import_jsx_runtime5 = require("react/jsx-runtime");
 var VortexConeChart = ({
   candles,
@@ -1623,8 +1805,8 @@ var VortexConeChart = ({
   theme = {}
 }) => {
   const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
-  const mergedColors = (0, import_react6.useMemo)(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
-  const resolvedCandles = (0, import_react6.useMemo)(() => {
+  const mergedColors = (0, import_react7.useMemo)(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
+  const resolvedCandles = (0, import_react7.useMemo)(() => {
     const raw = candles || historicalCandles || [];
     return Array.from(
       new Map(raw.map((c) => [c.t, c])).values()
@@ -1637,7 +1819,7 @@ var VortexConeChart = ({
   const resolvedDte = dte ?? expectedMove?.dte ?? 1;
   const futureStepCount = Math.max(2, Math.min(6, resolvedDte));
   const totalSlots = resolvedCandles.length + futureStepCount;
-  const bounds = (0, import_react6.useMemo)(() => {
+  const bounds = (0, import_react7.useMemo)(() => {
     const prices = [];
     resolvedCandles.forEach((c) => prices.push(c.close));
     if (resolvedSpot > 0) prices.push(resolvedSpot);
@@ -1645,13 +1827,13 @@ var VortexConeChart = ({
     if (resolvedLow > 0) prices.push(resolvedLow);
     return computeBounds(prices, containerWidth, height);
   }, [resolvedCandles, resolvedSpot, resolvedHigh, resolvedLow, containerWidth, height]);
-  const histPoints = (0, import_react6.useMemo)(() => {
+  const histPoints = (0, import_react7.useMemo)(() => {
     return resolvedCandles.map((c, idx) => ({
       x: indexToX(idx, totalSlots, bounds),
       price: c.close
     }));
   }, [resolvedCandles, totalSlots, bounds]);
-  const timeLabels = (0, import_react6.useMemo)(() => {
+  const timeLabels = (0, import_react7.useMemo)(() => {
     if (resolvedCandles.length === 0) return [];
     const labels = [];
     const maxHistLabels = Math.max(2, Math.floor(containerWidth / 150));
@@ -1665,7 +1847,7 @@ var VortexConeChart = ({
     labels.push({ x: expiryX, text: resolvedExpDate });
     return labels;
   }, [resolvedCandles, totalSlots, bounds, containerWidth, resolvedExpDate]);
-  const priceLines = (0, import_react6.useMemo)(() => {
+  const priceLines = (0, import_react7.useMemo)(() => {
     const list = [];
     if (resolvedHigh > 0) {
       list.push({
@@ -1707,7 +1889,7 @@ var VortexConeChart = ({
     slotCount: totalSlots,
     panZoom: false
   });
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const setup = setupCanvasDpi(canvas, containerWidth, height);
@@ -1760,7 +1942,7 @@ var VortexConeChart = ({
       drawVortexWatermark(ctx, bounds);
     }
   }, [containerWidth, height, dpr, bounds, histPoints, resolvedSpot, resolvedHigh, resolvedLow, totalSlots, priceLines, timeLabels, showWatermark, mergedColors, canvasRef]);
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     const canvas = overlayRef.current;
     if (!canvas) return;
     const setup = setupCanvasDpi(canvas, containerWidth, height);
@@ -1774,7 +1956,7 @@ var VortexConeChart = ({
       drawCrosshair(ctx, bounds, hover, formatCandleTime(hover.candle.t, false));
     }
   }, [containerWidth, height, dpr, bounds, hover, ruler, overlayRef]);
-  const spotDiff = (0, import_react6.useMemo)(() => {
+  const spotDiff = (0, import_react7.useMemo)(() => {
     if (!hover?.candle || resolvedSpot <= 0) return null;
     const diff = hover.candle.close - resolvedSpot;
     const pct = diff / resolvedSpot * 100;
@@ -1851,13 +2033,20 @@ var VortexConeChart = ({
   getVisibleCount,
   getZoomLevel,
   isViewportZoomed,
+  measureTextWidth,
+  nearestTimeIndex,
   panViewport,
+  publishCrosshairSync,
   resetViewport,
+  subscribeCrosshairSync,
+  timeToX,
   useChartPointer,
   useChartSurface,
   useChartViewport,
+  useCrosshairSync,
   viewportIndexToX,
   viewportXToIndex,
+  xToTime,
   zoomViewport
 });
 //# sourceMappingURL=index.cjs.map

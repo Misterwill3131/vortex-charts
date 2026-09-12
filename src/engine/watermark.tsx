@@ -1,5 +1,6 @@
 import React from "react";
 import type { ChartBounds } from "./coordinates";
+import { measureTextWidth } from "./text-cache";
 
 /**
  * Draws the clean "VorteXbot.app" watermark on the Canvas (no third-party or placeholder icon).
@@ -25,7 +26,7 @@ export function drawVortexWatermark(
   ctx.fillText("VorteX", x, y);
 
   // "bot.app" in cyan #38bdf8
-  const vortexWidth = ctx.measureText("VorteX").width;
+  const vortexWidth = measureTextWidth(ctx, "VorteX");
   ctx.font = "600 11px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   ctx.fillStyle = "#38bdf8";
   ctx.fillText("bot.app", x + vortexWidth, y);

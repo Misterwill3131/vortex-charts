@@ -81,6 +81,13 @@ interface VortexCandleChartProps {
     isIntraday?: boolean;
     showWatermark?: boolean;
     showControls?: boolean;
+    /**
+     * Map X by real timestamps instead of bar index: weekends / market pauses
+     * render as proportional empty space (recommended for daily+ timeframes).
+     */
+    timeScale?: boolean;
+    /** Share this id across charts to synchronize their crosshairs */
+    crosshairSyncGroup?: string;
     theme?: Partial<typeof VORTEX_THEME>;
 }
 declare const VortexCandleChart: React__default.FC<VortexCandleChartProps>;
@@ -95,6 +102,8 @@ interface VortexRangeChartProps {
     className?: string;
     showWatermark?: boolean;
     showControls?: boolean;
+    /** Share this id across charts to synchronize their crosshairs */
+    crosshairSyncGroup?: string;
     theme?: Partial<typeof VORTEX_THEME>;
 }
 declare const VortexRangeChart: React__default.FC<VortexRangeChartProps>;
@@ -197,6 +206,21 @@ interface ViewportLike {
     endIndex: number;
     totalCount: number;
 }
+interface TimeScaleMapping {
+    /** Timestamp of the first visible candle */
+    tMin: number;
+    /** Timestamp of the last visible candle */
+    tMax: number;
+}
+declare function timeToX(t: number, scale: TimeScaleMapping, bounds: ChartBounds): number;
+declare function xToTime(x: number, scale: TimeScaleMapping, bounds: ChartBounds): number;
+/**
+ * Binary search over chronologically sorted items: returns the index whose
+ * timestamp is nearest to `target`. Returns -1 for an empty array.
+ */
+declare function nearestTimeIndex(items: {
+    t: number;
+}[], target: number): number;
 /**
  * Maps a global data index to an X coordinate using the active viewport window.
  */
@@ -219,6 +243,15 @@ interface RulerState {
     currentPoint: RulerPoint | null;
 }
 declare function drawRulerOverlay(ctx: CanvasRenderingContext2D, bounds: ChartBounds, ruler: RulerState): void;
+
+/**
+ * Memoizes ctx.measureText results keyed by (font, text).
+ *
+ * measureText is one of the most expensive Canvas calls when repeated every
+ * frame (grid labels, axis badges, watermark). Widths for a given
+ * font+text pair are deterministic within a session, so a simple Map works.
+ */
+declare function measureTextWidth(ctx: CanvasRenderingContext2D, text: string): number;
 
 interface HoverState {
     mouseX: number;
@@ -252,6 +285,23 @@ declare function drawVortexWatermark(ctx: CanvasRenderingContext2D, bounds: Char
 declare const VortexWatermarkOverlay: React__default.FC<{
     className?: string;
 }>;
+
+/**
+ * Lightweight pub/sub bus for multi-chart crosshair synchronization.
+ *
+ * Charts sharing the same `group` id broadcast their hovered candle timestamp;
+ * subscriber charts draw a ghost vertical crosshair at their nearest bar.
+ * The store lives at module scope (SSR-safe: no window access, no persistence).
+ */
+interface CrosshairSyncEvent {
+    /** Hovered candle timestamp, or null when the cursor leaves the source chart */
+    time: number | null;
+    /** Identity of the emitting chart — subscribers skip their own events */
+    sourceId: string;
+}
+type Listener = (event: CrosshairSyncEvent) => void;
+declare function subscribeCrosshairSync(group: string, listener: Listener): () => void;
+declare function publishCrosshairSync(group: string, event: CrosshairSyncEvent): void;
 
 /**
  * Owns the chart DOM surface: container, main canvas, overlay canvas,
@@ -294,6 +344,11 @@ interface UseChartPointerOptions {
     slotCount?: number;
     /** Global index of the first visible candle (viewport pan offset) */
     indexOffset?: number;
+    /**
+     * Time-based X mapping. When provided (and the visible slice is non-empty),
+     * hit-testing resolves the hovered candle by timestamp instead of slot index.
+     */
+    timeScale?: TimeScaleMapping | null;
     /** Enable wheel zoom + drag pan (candle & range charts) */
     panZoom?: boolean;
     /** Current viewport state — required when panZoom is enabled */
@@ -310,7 +365,7 @@ interface UseChartPointerOptions {
  *   at most one state update per display frame reaches React.
  * - Snaps hover to candle centers (magnetized crosshair).
  */
-declare function useChartPointer({ canvasRef, bounds, visible, slotCount, indexOffset, panZoom, viewport, onViewportChange, }: UseChartPointerOptions): {
+declare function useChartPointer({ canvasRef, bounds, visible, slotCount, indexOffset, timeScale, panZoom, viewport, onViewportChange, }: UseChartPointerOptions): {
     hover: HoverState | null;
     ruler: RulerState;
     isRulerToolActive: boolean;
@@ -323,6 +378,23 @@ declare function useChartPointer({ canvasRef, bounds, visible, slotCount, indexO
         onPointerCancel: () => void;
         onPointerLeave: () => void;
     };
+};
+
+interface UseCrosshairSyncOptions {
+    /** Shared group id — charts with the same group synchronize their crosshairs */
+    group?: string;
+    /** Local hovered candle timestamp (null when idle) — broadcast to the group */
+    localTime: number | null;
+    /** Receives the hovered timestamp of remote charts in the group */
+    onRemoteTime: (time: number | null) => void;
+}
+/**
+ * Wires a chart into a crosshair synchronization group.
+ * Publishes the local hover timestamp and forwards remote events,
+ * ignoring events emitted by this very chart (sourceId comparison).
+ */
+declare function useCrosshairSync({ group, localTime, onRemoteTime }: UseCrosshairSyncOptions): {
+    sourceId: string;
 };
 
 /**
@@ -339,4 +411,4 @@ declare function formatCandleTime(timestampMs: number, isIntraday?: boolean): st
  */
 declare function formatPrice(price: number): string;
 
-export { type Candle, type ExpectedMoveSpec, type PremarketRange, type PriceLine, type PriorDayRange, type RulerPoint, type RulerState, type TargetRange, VORTEX_THEME, type ViewportState, VortexCandleChart, type VortexCandleChartProps, VortexChartControls, type VortexChartControlsProps, VortexConeChart, type VortexConeChartProps, VortexRangeChart, type VortexRangeChartProps, VortexWatermarkOverlay, type VwapPoint, createViewport, drawRulerOverlay, drawVortexWatermark, formatCandleTime, formatChange, formatPrice, formatVolume, getVisibleCount, getZoomLevel, isViewportZoomed, panViewport, resetViewport, useChartPointer, useChartSurface, useChartViewport, viewportIndexToX, viewportXToIndex, zoomViewport };
+export { type Candle, type CrosshairSyncEvent, type ExpectedMoveSpec, type PremarketRange, type PriceLine, type PriorDayRange, type RulerPoint, type RulerState, type TargetRange, type TimeScaleMapping, VORTEX_THEME, type ViewportState, VortexCandleChart, type VortexCandleChartProps, VortexChartControls, type VortexChartControlsProps, VortexConeChart, type VortexConeChartProps, VortexRangeChart, type VortexRangeChartProps, VortexWatermarkOverlay, type VwapPoint, createViewport, drawRulerOverlay, drawVortexWatermark, formatCandleTime, formatChange, formatPrice, formatVolume, getVisibleCount, getZoomLevel, isViewportZoomed, measureTextWidth, nearestTimeIndex, panViewport, publishCrosshairSync, resetViewport, subscribeCrosshairSync, timeToX, useChartPointer, useChartSurface, useChartViewport, useCrosshairSync, viewportIndexToX, viewportXToIndex, xToTime, zoomViewport };

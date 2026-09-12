@@ -2,6 +2,7 @@ import type { Candle } from "../types";
 import type { ChartBounds } from "./coordinates";
 import { priceToY, yToPrice } from "./coordinates";
 import { formatPrice } from "../utils/chart-defaults";
+import { measureTextWidth } from "./text-cache";
 
 export interface HoverState {
   mouseX: number;
@@ -68,7 +69,7 @@ export function drawCrosshair(
   ctx.setLineDash([]);
   ctx.font = "bold 10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const priceText = `$${formatPrice(cursorPrice)}`;
-  const textW = ctx.measureText(priceText).width;
+  const textW = measureTextWidth(ctx, priceText);
   const pillW = textW + 10;
   const pillH = 16;
   const pillX = rightAxisX + 4;
@@ -88,7 +89,7 @@ export function drawCrosshair(
   // 4. Time badge on bottom axis (centered on the snapped candle)
   if (timeText) {
     ctx.font = "10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-    const timeW = ctx.measureText(timeText).width + 12;
+    const timeW = measureTextWidth(ctx, timeText) + 12;
     const timeH = 16;
     const timeX = Math.round(snapX - timeW / 2);
     const timeY = bottomAxisY + 4;
@@ -107,6 +108,32 @@ export function drawCrosshair(
     ctx.fillText(timeText, timeX + timeW / 2, timeY + timeH / 2);
   }
 
+  ctx.restore();
+}
+
+/**
+ * Ghost vertical crosshair drawn when a remote chart in the same sync group
+ * is hovered. Subtle cyan dashed line — no badges, no tooltip interference.
+ */
+export function drawRemoteCrosshair(
+  ctx: CanvasRenderingContext2D,
+  bounds: ChartBounds,
+  x: number
+) {
+  const { chartWidth, chartHeight, padding } = bounds;
+  const rightAxisX = chartWidth - padding.right;
+  const bottomAxisY = chartHeight - padding.bottom;
+
+  if (x < padding.left || x > rightAxisX) return;
+
+  ctx.save();
+  ctx.setLineDash([2, 4]);
+  ctx.strokeStyle = "rgba(56, 189, 248, 0.35)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(Math.round(x) + 0.5, padding.top);
+  ctx.lineTo(Math.round(x) + 0.5, bottomAxisY);
+  ctx.stroke();
   ctx.restore();
 }
 

@@ -1,19 +1,20 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { Candle, PriorDayRange, PremarketRange, VwapPoint } from "../types";
 import { VORTEX_THEME } from "../theme/tokens";
-import { computeBounds, indexToX } from "../engine/coordinates";
+import { computeBounds, indexToX, nearestTimeIndex } from "../engine/coordinates";
 import { drawGridAndAxes } from "../engine/grid";
 import { drawCandlesticks } from "../engine/candles";
 import { drawSessionBox } from "../engine/boxes";
 import { drawLineSeries, type DataPoint } from "../engine/lines";
 import { drawVortexWatermark } from "../engine/watermark";
-import { drawCrosshair, formatChange, formatVolume } from "../engine/interaction";
+import { drawCrosshair, drawRemoteCrosshair, formatChange, formatVolume } from "../engine/interaction";
 import { drawRulerOverlay } from "../engine/ruler";
 import { VortexChartControls } from "./VortexChartControls";
 import { setupCanvasDpi } from "../engine/canvas";
 import { useChartSurface } from "../hooks/useChartSurface";
 import { useChartViewport } from "../hooks/useChartViewport";
 import { useChartPointer } from "../hooks/useChartPointer";
+import { useCrosshairSync } from "../hooks/useCrosshairSync";
 import { formatCandleTime, formatPrice } from "../utils/chart-defaults";
 
 export interface VortexRangeChartProps {
@@ -26,6 +27,8 @@ export interface VortexRangeChartProps {
   className?: string;
   showWatermark?: boolean;
   showControls?: boolean;
+  /** Share this id across charts to synchronize their crosshairs */
+  crosshairSyncGroup?: string;
   theme?: Partial<typeof VORTEX_THEME>;
 }
 
@@ -39,6 +42,7 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
   className = "",
   showWatermark = true,
   showControls = true,
+  crosshairSyncGroup,
   theme = {},
 }) => {
   // Deduplicate and sort intraday candles
@@ -129,6 +133,14 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
       viewport,
       onViewportChange: setViewport,
     });
+
+  // ── Multi-chart crosshair synchronization ──
+  const [remoteHoverTime, setRemoteHoverTime] = useState<number | null>(null);
+  useCrosshairSync({
+    group: crosshairSyncGroup,
+    localTime: hover?.candle?.t ?? null,
+    onRemoteTime: setRemoteHoverTime,
+  });
 
   const handleReset = () => {
     resetView();
@@ -224,7 +236,21 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
     if (hover && hover.candle && !ruler.active) {
       drawCrosshair(ctx, bounds, hover, formatCandleTime(hover.candle.t, true));
     }
-  }, [containerWidth, height, dpr, bounds, hover, ruler, overlayRef]);
+
+    // 3. Remote crosshair from the sync group (ghost line at the nearest bar)
+    if (!hover && remoteHoverTime != null && visibleCandles.length > 0) {
+      const idx = nearestTimeIndex(visibleCandles, remoteHoverTime);
+      const c = idx >= 0 ? visibleCandles[idx] : null;
+      if (c) {
+        const tSpan = visibleCandles[visibleCandles.length - 1].t - visibleCandles[0].t;
+        const avgGap = tSpan / Math.max(1, visibleCandles.length - 1);
+        if (Math.abs(c.t - remoteHoverTime) <= Math.max(avgGap, 60_000)) {
+          const x = indexToX(idx, visibleCandles.length, bounds);
+          drawRemoteCrosshair(ctx, bounds, x);
+        }
+      }
+    }
+  }, [containerWidth, height, dpr, bounds, hover, ruler, remoteHoverTime, visibleCandles, overlayRef]);
 
   // Compute change metrics for hover tooltip
   const hoverMetrics = useMemo(() => {

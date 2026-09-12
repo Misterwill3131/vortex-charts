@@ -2,6 +2,7 @@ import type { PriceLine } from "../types";
 import type { ChartBounds } from "./coordinates";
 import { priceToY } from "./coordinates";
 import { formatPrice } from "../utils/chart-defaults";
+import { measureTextWidth } from "./text-cache";
 
 export function drawPriceLines(
   ctx: CanvasRenderingContext2D,
@@ -42,7 +43,7 @@ export function drawPriceLines(
       ctx.save();
       ctx.setLineDash([]);
       ctx.font = "10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-      const textWidth = ctx.measureText(line.title).width;
+      const textWidth = measureTextWidth(ctx, line.title);
       const tagX = rightAxisX - textWidth - 10;
       const tagY = y - 7;
 
@@ -63,7 +64,7 @@ export function drawPriceLines(
       ctx.setLineDash([]);
       const labelText = formatPrice(line.price);
       ctx.font = "bold 10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-      const labelWidth = ctx.measureText(labelText).width;
+      const labelWidth = measureTextWidth(ctx, labelText);
       const pillWidth = labelWidth + 10;
       const pillHeight = 16;
       const pillX = rightAxisX + 4;

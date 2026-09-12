@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { Candle } from "../types";
-import type { ChartBounds } from "../engine/coordinates";
-import { indexToX, xToIndex, yToPrice } from "../engine/coordinates";
+import type { ChartBounds, TimeScaleMapping } from "../engine/coordinates";
+import { indexToX, nearestTimeIndex, timeToX, xToIndex, xToTime, yToPrice } from "../engine/coordinates";
 import { panViewport, zoomViewport, type ViewportState } from "../engine/viewport";
 import type { RulerPoint, RulerState } from "../engine/ruler";
 import type { HoverState } from "../engine/interaction";
@@ -22,6 +22,11 @@ export interface UseChartPointerOptions {
   slotCount?: number;
   /** Global index of the first visible candle (viewport pan offset) */
   indexOffset?: number;
+  /**
+   * Time-based X mapping. When provided (and the visible slice is non-empty),
+   * hit-testing resolves the hovered candle by timestamp instead of slot index.
+   */
+  timeScale?: TimeScaleMapping | null;
   /** Enable wheel zoom + drag pan (candle & range charts) */
   panZoom?: boolean;
   /** Current viewport state — required when panZoom is enabled */
@@ -45,6 +50,7 @@ export function useChartPointer({
   visible,
   slotCount,
   indexOffset = 0,
+  timeScale = null,
   panZoom = false,
   viewport,
   onViewportChange,
@@ -131,9 +137,22 @@ export function useChartPointer({
   // ── Hit testing (magnetized on candle centers) ──
   const hitTest = (mouseX: number, mouseY: number) => {
     const count = slotCount ?? visible.length;
-    const localIdx = xToIndex(mouseX, count, bounds);
+    let localIdx: number;
+    if (timeScale && visible.length > 0) {
+      localIdx = nearestTimeIndex(visible, xToTime(mouseX, timeScale, bounds));
+    } else {
+      localIdx = xToIndex(mouseX, count, bounds);
+    }
+    if (localIdx < 0) {
+      const centerX = bounds.padding.left + bounds.plotWidth / 2;
+      return { candle: null, snapX: centerX, price: yToPrice(mouseY, bounds), globalIndex: -1 };
+    }
     const candle = visible[localIdx] ?? null;
-    const snapX = indexToX(localIdx, count, bounds);
+    const snapX = Math.round(
+      timeScale && candle
+        ? timeToX(candle.t, timeScale, bounds)
+        : indexToX(localIdx, count, bounds)
+    );
     const price = yToPrice(mouseY, bounds);
     const globalIndex = indexOffset + localIdx;
     return { candle, snapX, price, globalIndex };

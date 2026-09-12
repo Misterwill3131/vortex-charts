@@ -1,18 +1,25 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { Candle, PriceLine } from "../types";
 import { VORTEX_THEME } from "../theme/tokens";
-import { computeBounds, indexToX } from "../engine/coordinates";
+import {
+  computeBounds,
+  indexToX,
+  nearestTimeIndex,
+  timeToX,
+  type TimeScaleMapping,
+} from "../engine/coordinates";
 import { drawGridAndAxes } from "../engine/grid";
 import { drawCandlesticks } from "../engine/candles";
 import { drawPriceLines } from "../engine/price-lines";
 import { drawVortexWatermark } from "../engine/watermark";
-import { drawCrosshair, formatChange, formatVolume } from "../engine/interaction";
+import { drawCrosshair, drawRemoteCrosshair, formatChange, formatVolume } from "../engine/interaction";
 import { drawRulerOverlay } from "../engine/ruler";
 import { VortexChartControls } from "./VortexChartControls";
 import { setupCanvasDpi } from "../engine/canvas";
 import { useChartSurface } from "../hooks/useChartSurface";
 import { useChartViewport } from "../hooks/useChartViewport";
 import { useChartPointer } from "../hooks/useChartPointer";
+import { useCrosshairSync } from "../hooks/useCrosshairSync";
 import { formatCandleTime, formatPrice } from "../utils/chart-defaults";
 
 export interface VortexCandleChartProps {
@@ -28,6 +35,13 @@ export interface VortexCandleChartProps {
   isIntraday?: boolean;
   showWatermark?: boolean;
   showControls?: boolean;
+  /**
+   * Map X by real timestamps instead of bar index: weekends / market pauses
+   * render as proportional empty space (recommended for daily+ timeframes).
+   */
+  timeScale?: boolean;
+  /** Share this id across charts to synchronize their crosshairs */
+  crosshairSyncGroup?: string;
   theme?: Partial<typeof VORTEX_THEME>;
 }
 
@@ -43,6 +57,8 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
   isIntraday = false,
   showWatermark = true,
   showControls = true,
+  timeScale = false,
+  crosshairSyncGroup,
   theme = {},
 }) => {
   // Deduplicate and sort candles chronologically
@@ -136,6 +152,14 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
   const chartBounds = bounds.computed;
   const allLines = bounds.lines;
 
+  // Time-based X mapping (gap-aware) derived from the visible window
+  const timeScaleMapping = useMemo<TimeScaleMapping | null>(() => {
+    if (!timeScale || visibleCandles.length < 2) return null;
+    const tMin = visibleCandles[0].t;
+    const tMax = visibleCandles[visibleCandles.length - 1].t;
+    return tMax > tMin ? { tMin, tMax } : null;
+  }, [timeScale, visibleCandles]);
+
   // Generate bottom time labels for visible slice
   const timeLabels = useMemo(() => {
     if (visibleCandles.length === 0) return [];
@@ -146,11 +170,13 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
     const labels: { x: number; text: string }[] = [];
     for (let i = 0; i < count; i += step) {
       const c = visibleCandles[i];
-      const x = indexToX(i, count, chartBounds);
+      const x = timeScaleMapping
+        ? timeToX(c.t, timeScaleMapping, chartBounds)
+        : indexToX(i, count, chartBounds);
       labels.push({ x, text: formatCandleTime(c.t, isIntraday) });
     }
     return labels;
-  }, [visibleCandles, containerWidth, chartBounds, isIntraday]);
+  }, [visibleCandles, containerWidth, chartBounds, isIntraday, timeScaleMapping]);
 
   // ── Pointer interaction: hover crosshair, ruler, drag pan, wheel zoom ──
   const { hover, ruler, isRulerToolActive, toggleRuler, clearRuler, pointerHandlers } =
@@ -159,10 +185,19 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
       bounds: chartBounds,
       visible: visibleCandles,
       indexOffset: viewport.startIndex,
+      timeScale: timeScaleMapping,
       panZoom: true,
       viewport,
       onViewportChange: setViewport,
     });
+
+  // ── Multi-chart crosshair synchronization ──
+  const [remoteHoverTime, setRemoteHoverTime] = useState<number | null>(null);
+  useCrosshairSync({
+    group: crosshairSyncGroup,
+    localTime: hover?.candle?.t ?? null,
+    onRemoteTime: setRemoteHoverTime,
+  });
 
   const handleReset = () => {
     resetView();
@@ -183,11 +218,17 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
     // 1. Grid & Axes
     drawGridAndAxes(ctx, chartBounds, timeLabels);
 
-    // 2. Visible Candlesticks
-    drawCandlesticks(ctx, visibleCandles, chartBounds, {
-      upColor: mergedColors.bullish,
-      downColor: mergedColors.bearish,
-    });
+    // 2. Visible Candlesticks (gap-aware when timeScale is enabled)
+    drawCandlesticks(
+      ctx,
+      visibleCandles,
+      chartBounds,
+      {
+        upColor: mergedColors.bullish,
+        downColor: mergedColors.bearish,
+      },
+      timeScaleMapping
+    );
 
     // 3. Price Lines & Right Badges
     drawPriceLines(ctx, allLines, chartBounds);
@@ -196,7 +237,7 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
     if (showWatermark) {
       drawVortexWatermark(ctx, chartBounds);
     }
-  }, [containerWidth, height, dpr, chartBounds, visibleCandles, allLines, timeLabels, showWatermark, mergedColors, canvasRef]);
+  }, [containerWidth, height, dpr, chartBounds, visibleCandles, allLines, timeLabels, timeScaleMapping, showWatermark, mergedColors, canvasRef]);
 
   // ── Overlay canvas: lightweight crosshair + ruler, redrawn on hover only ──
   useEffect(() => {
@@ -218,7 +259,24 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
     if (hover && hover.candle && !ruler.active) {
       drawCrosshair(ctx, chartBounds, hover, formatCandleTime(hover.candle.t, isIntraday));
     }
-  }, [containerWidth, height, dpr, chartBounds, hover, ruler, isIntraday, overlayRef]);
+
+    // 3. Remote crosshair from the sync group (ghost line at the nearest bar)
+    if (!hover && remoteHoverTime != null && visibleCandles.length > 0) {
+      const idx = nearestTimeIndex(visibleCandles, remoteHoverTime);
+      const c = idx >= 0 ? visibleCandles[idx] : null;
+      if (c) {
+        const tSpan = visibleCandles[visibleCandles.length - 1].t - visibleCandles[0].t;
+        const avgGap = tSpan / Math.max(1, visibleCandles.length - 1);
+        // Only react when a visible bar actually matches the remote time
+        if (Math.abs(c.t - remoteHoverTime) <= Math.max(avgGap, 60_000)) {
+          const x = timeScaleMapping
+            ? timeToX(c.t, timeScaleMapping, chartBounds)
+            : indexToX(idx, visibleCandles.length, chartBounds);
+          drawRemoteCrosshair(ctx, chartBounds, x);
+        }
+      }
+    }
+  }, [containerWidth, height, dpr, chartBounds, hover, ruler, remoteHoverTime, visibleCandles, timeScaleMapping, isIntraday, overlayRef]);
 
   // Compute change metrics for hover tooltip
   const hoverMetrics = useMemo(() => {

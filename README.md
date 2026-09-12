@@ -2,7 +2,7 @@
 
 > Official financial and quantitative charting library for the **VorteX** platform. Reusable across all VorteX applications, micro-frontends, and dashboards.
 
-[![NPM Version](https://img.shields.io/badge/version-0.4.0-cyan.svg)](https://github.com/Misterwill3131/vortex-charts)
+[![NPM Version](https://img.shields.io/badge/version-0.5.0-cyan.svg)](https://github.com/Misterwill3131/vortex-charts)
 [![VorteX Theme](https://img.shields.io/badge/theme-vortex--dark-purple.svg)](https://github.com/Misterwill3131/vortex-charts)
 [![License](https://img.shields.io/badge/license-UNLICENSED-rose.svg)](https://github.com/Misterwill3131/vortex-charts)
 
@@ -11,8 +11,10 @@
 ## ⚡ Highlights
 
 - **VorteX Dark Glassmorphic Design**: `#020616` dark background, `#38bdf8` (Spot Cyan), `#10b981` (Bullish Green), `#f43f5e` (Bearish Crimson), `#c084fc` (VWAP Lilac), `#eab308` (Gold / Target).
-- **High Performance**: Pure native Canvas 2D rendering engine — zero third-party charting dependencies (0% TradingView). Dual-canvas architecture (data layer + interaction overlay), `requestAnimationFrame`-coalesced pointer updates, conditional GPU backing-store reallocation, Pointer Events (mouse / touch / pen).
+- **High Performance**: Pure native Canvas 2D rendering engine — zero third-party charting dependencies (0% TradingView). Dual-canvas architecture (data layer + interaction overlay), `requestAnimationFrame`-coalesced pointer updates, conditional GPU backing-store reallocation, Pointer Events (mouse / touch / pen), memoized `measureText`.
 - **Crisp on any display**: `devicePixelRatio`-aware rendering with live multi-monitor Retina re-detection, magnetized crosshair snapping to candle centers and wicks, rAF-coalesced resize tracking.
+- **Gap-aware time scale**: optional `timeScale` mode maps X to real timestamps — weekends and market pauses render as proportional empty space instead of false equidistant bars.
+- **Multi-chart crosshair sync**: pass the same `crosshairSyncGroup` id to several charts to synchronize their crosshairs (ghost line at the nearest bar, tolerance-aware).
 - **Client & SSR Ready**: Shipped with `"use client";` banners on both ESM/CJS bundles and complete TypeScript types.
 - **Dedicated Quantitative Components**:
   - `VortexCandleChart`: Multi-timeframe candlesticks with dynamic price lines, high/low swings, ATR bounds.
@@ -54,6 +56,8 @@ export function MyChart() {
     <VortexCandleChart
       candles={candles}
       height={320}
+      timeScale               // gap-aware X mapping (recommended for daily+)
+      crosshairSyncGroup="main"  // sync crosshairs with other charts in group "main"
       priceLines={[
         { price: 580.0, color: "#10b981", title: "Key Support", lineStyle: "dashed" },
         { price: 590.0, color: "#f43f5e", title: "Resistance", lineStyle: "dashed" },
@@ -75,6 +79,7 @@ export function SessionChart({ candles, priorDay, premarket, vwapSeries }) {
       priorDay={priorDay}
       premarket={premarket}
       vwapSeries={vwapSeries}
+      crosshairSyncGroup="main"  // same group as VortexCandleChart above
       overlayMode="all" // "all" | "boxes" | "vwap" | "none"
       height={300}
     />

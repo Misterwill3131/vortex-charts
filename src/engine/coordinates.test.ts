@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { computeBounds, priceToY, yToPrice, indexToX, xToIndex, DEFAULT_PADDING } from "./coordinates";
+import {
+  computeBounds,
+  priceToY,
+  yToPrice,
+  indexToX,
+  xToIndex,
+  timeToX,
+  xToTime,
+  nearestTimeIndex,
+  DEFAULT_PADDING,
+} from "./coordinates";
 
 describe("computeBounds", () => {
   it("computes padded bounds from a normal price series", () => {
@@ -84,5 +94,69 @@ describe("coordinate round-trips", () => {
     const x = indexToX(0, 1, bounds);
     const mid = bounds.padding.left + bounds.plotWidth / 2;
     expect(x).toBeCloseTo(mid, 6);
+  });
+});
+
+describe("time scale mapping", () => {
+  const DAY = 86_400_000;
+  const bounds = computeBounds([100, 200], 600, 300);
+
+  it("timeToX and xToTime are exact inverses", () => {
+    const scale = { tMin: 0, tMax: 10 * DAY };
+    for (const days of [0, 2.5, 5, 7.5, 10]) {
+      const t = days * DAY;
+      const x = timeToX(t, scale, bounds);
+      expect(xToTime(x, scale, bounds)).toBeCloseTo(t, 6);
+    }
+  });
+
+  it("later timestamps map further right", () => {
+    const scale = { tMin: 0, tMax: 10 * DAY };
+    expect(timeToX(2 * DAY, scale, bounds)).toBeLessThan(timeToX(8 * DAY, scale, bounds));
+  });
+
+  it("clamps to the plot center when the time span is zero", () => {
+    const scale = { tMin: 5 * DAY, tMax: 5 * DAY };
+    const x = timeToX(9 * DAY, scale, bounds);
+    expect(x).toBeCloseTo(bounds.padding.left + bounds.plotWidth / 2, 6);
+  });
+
+  it("renders proportional gaps: a 3-day hole is 3x wider than a 1-day step", () => {
+    const t0 = 0;
+    const t1 = DAY;
+    const t3 = 4 * DAY; // 3-day gap after t1
+    const scale = { tMin: t0, tMax: t3 };
+    const x0 = timeToX(t0, scale, bounds);
+    const x1 = timeToX(t1, scale, bounds);
+    const x3 = timeToX(t3, scale, bounds);
+    expect(x1 - x0).toBeGreaterThan(0);
+    expect((x3 - x1) / (x1 - x0)).toBeCloseTo(3, 6);
+  });
+});
+
+describe("nearestTimeIndex (binary search)", () => {
+  const DAY = 86_400_000;
+  const items = [0, 1, 2, 3, 4, 5].map((d) => ({ t: d * DAY }));
+
+  it("finds exact matches", () => {
+    expect(nearestTimeIndex(items, 3 * DAY)).toBe(3);
+  });
+
+  it("finds the nearest item between two timestamps", () => {
+    expect(nearestTimeIndex(items, 3.4 * DAY)).toBe(3);
+    expect(nearestTimeIndex(items, 3.6 * DAY)).toBe(4);
+  });
+
+  it("clamps before the first and after the last timestamp", () => {
+    expect(nearestTimeIndex(items, -5 * DAY)).toBe(0);
+    expect(nearestTimeIndex(items, 99 * DAY)).toBe(items.length - 1);
+  });
+
+  it("returns -1 on an empty array", () => {
+    expect(nearestTimeIndex([], 123)).toBe(-1);
+  });
+
+  it("handles a single item", () => {
+    expect(nearestTimeIndex([{ t: 42 }], 1000)).toBe(0);
   });
 });

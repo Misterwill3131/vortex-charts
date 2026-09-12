@@ -1,6 +1,7 @@
 import type { ChartBounds } from "./coordinates";
 import { priceToY } from "./coordinates";
 import { formatPrice } from "../utils/chart-defaults";
+import { measureTextWidth } from "./text-cache";
 
 export interface SessionBoxData {
   high: number;
@@ -65,7 +66,7 @@ export function drawSessionBox(
 
   // High Badge
   const highText = `${box.prefix}H $${formatPrice(box.high)}`;
-  const highW = ctx.measureText(highText).width + 8;
+  const highW = measureTextWidth(ctx, highText) + 8;
   ctx.fillStyle = box.color;
   ctx.beginPath();
   ctx.roundRect(rightAxisX + 3, yHigh - 7, highW, 14, 3);
@@ -75,7 +76,7 @@ export function drawSessionBox(
 
   // Low Badge
   const lowText = `${box.prefix}L $${formatPrice(box.low)}`;
-  const lowW = ctx.measureText(lowText).width + 8;
+  const lowW = measureTextWidth(ctx, lowText) + 8;
   ctx.fillStyle = box.color;
   ctx.beginPath();
   ctx.roundRect(rightAxisX + 3, yLow - 7, lowW, 14, 3);

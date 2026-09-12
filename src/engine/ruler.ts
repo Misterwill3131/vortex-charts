@@ -1,5 +1,6 @@
 import type { ChartBounds } from "./coordinates";
 import { formatPrice } from "../utils/chart-defaults";
+import { measureTextWidth } from "./text-cache";
 
 export interface RulerPoint {
   x: number;
@@ -71,7 +72,7 @@ export function drawRulerOverlay(
   const fullText = `${priceText}  •  ${barsText}`;
 
   ctx.font = "bold 11px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-  const textWidth = ctx.measureText(fullText).width;
+  const textWidth = measureTextWidth(ctx, fullText);
   const badgeW = textWidth + 16;
   const badgeH = 22;
 
