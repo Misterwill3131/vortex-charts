@@ -136,20 +136,143 @@ function viewportXToIndex(x, viewport, bounds) {
   return Math.max(0, Math.min(viewport.totalCount - 1, viewport.startIndex + localIndex));
 }
 
+// src/engine/text-cache.ts
+var cache = /* @__PURE__ */ new Map();
+var MAX_ENTRIES = 2e3;
+function measureTextWidth(ctx, text) {
+  const key = `${ctx.font}\0${text}`;
+  let width = cache.get(key);
+  if (width === void 0) {
+    width = ctx.measureText(text).width;
+    if (cache.size >= MAX_ENTRIES) cache.clear();
+    cache.set(key, width);
+  }
+  return width;
+}
+
+// src/engine/zones.ts
+function computeZoneRect(zone, visible, bounds) {
+  if (visible.length === 0) return null;
+  if (zone.anchorTime > visible[visible.length - 1].t) return null;
+  const x2 = bounds.chartWidth - bounds.padding.right;
+  let x1;
+  if (zone.anchorTime < visible[0].t) {
+    x1 = bounds.padding.left;
+  } else {
+    const idx = nearestTimeIndex(visible, zone.anchorTime);
+    if (idx < 0) return null;
+    const slot = bounds.plotWidth / visible.length;
+    x1 = bounds.padding.left + idx * slot;
+  }
+  if (x2 - x1 < 1) return null;
+  const yTop = priceToY(zone.top, bounds);
+  const yBottom = priceToY(zone.bottom, bounds);
+  if (!isFinite(yTop) || !isFinite(yBottom) || yBottom - yTop < 1) return null;
+  return { x1, x2, yTop, yBottom };
+}
+function parseZoneColor(color) {
+  const hex = color.replace("#", "").trim();
+  if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+    return {
+      r: parseInt(hex.slice(0, 2), 16),
+      g: parseInt(hex.slice(2, 4), 16),
+      b: parseInt(hex.slice(4, 6), 16)
+    };
+  }
+  const parts = color.split(",");
+  if (parts.length === 3) {
+    const r = Number(parts[0].trim());
+    const g = Number(parts[1].trim());
+    const b = Number(parts[2].trim());
+    if (isFinite(r) && isFinite(g) && isFinite(b)) return { r, g, b };
+  }
+  return { r: 56, g: 189, b: 248 };
+}
+function drawChartZones(ctx, bounds, zones, visible) {
+  if (zones.length === 0 || visible.length === 0) return;
+  const boxes = [];
+  ctx.save();
+  for (const zone of zones) {
+    const rect = computeZoneRect(zone, visible, bounds);
+    if (!rect) continue;
+    const { r, g, b } = parseZoneColor(zone.color);
+    const rgb = `${r}, ${g}, ${b}`;
+    const { x1, x2, yTop, yBottom } = rect;
+    ctx.fillStyle = `rgba(${rgb}, 0.1)`;
+    ctx.fillRect(x1, yTop, x2 - x1, yBottom - yTop);
+    ctx.save();
+    ctx.strokeStyle = `rgba(${rgb}, 0.9)`;
+    ctx.lineWidth = 1.4;
+    ctx.setLineDash([1.5, 2.5]);
+    ctx.beginPath();
+    ctx.moveTo(x1, Math.round(yTop) + 0.5);
+    ctx.lineTo(x2, Math.round(yTop) + 0.5);
+    ctx.moveTo(x1, Math.round(yBottom) + 0.5);
+    ctx.lineTo(x2, Math.round(yBottom) + 0.5);
+    ctx.stroke();
+    ctx.restore();
+    if (typeof zone.ce === "number" && isFinite(zone.ce)) {
+      const yCe = priceToY(zone.ce, bounds);
+      if (isFinite(yCe) && yCe >= yTop && yCe <= yBottom) {
+        ctx.save();
+        ctx.strokeStyle = `rgba(${rgb}, 0.4)`;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x1, Math.round(yCe) + 0.5);
+        ctx.lineTo(x2, Math.round(yCe) + 0.5);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    if (zone.label) {
+      boxes.push({ x: x1, y: yTop, rgb, label: zone.label });
+    }
+  }
+  if (boxes.length > 0) {
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.font = "600 10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    ctx.textBaseline = "alphabetic";
+    const LABEL_H = 13;
+    const placed = [];
+    boxes.sort((a, b) => a.y - b.y);
+    for (const b of boxes) {
+      const lx = b.x + 4;
+      const w = measureTextWidth(ctx, b.label) + 6;
+      let ly = b.y + 11;
+      let guard = 0;
+      while (guard++ < 60 && placed.some((p) => lx < p.x2 && lx + w > p.x1 && Math.abs(p.y - ly) < LABEL_H)) {
+        ly += LABEL_H;
+      }
+      placed.push({ x1: lx, x2: lx + w, y: ly });
+      ctx.fillStyle = "rgba(12, 14, 20, 0.72)";
+      ctx.fillRect(lx - 3, ly - 9, w, 12);
+      ctx.fillStyle = `rgba(${b.rgb}, 0.95)`;
+      ctx.fillText(b.label, lx, ly);
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
 // src/utils/chart-defaults.ts
-function formatCandleTime(timestampMs, isIntraday = false) {
+function formatCandleTime(timestampMs, isIntraday = false, timeZone) {
   const d = new Date(timestampMs);
+  const tz = timeZone ? { timeZone } : {};
   if (isIntraday) {
     return d.toLocaleTimeString("en-US", {
       hour: "2-digit",
       minute: "2-digit",
-      hour12: false
+      hour12: false,
+      ...tz
     });
   }
   return d.toLocaleDateString("en-US", {
     year: "numeric",
     month: "2-digit",
-    day: "2-digit"
+    day: "2-digit",
+    ...tz
   });
 }
 function formatPrice(price) {
@@ -257,20 +380,6 @@ function drawCandlesticks(ctx, candles, bounds, style = DEFAULT_CANDLE_STYLE, ti
     ctx.fillRect(xBodyLeft, yBodyTop, candleBodyWidth, bodyHeight);
   });
   ctx.restore();
-}
-
-// src/engine/text-cache.ts
-var cache = /* @__PURE__ */ new Map();
-var MAX_ENTRIES = 2e3;
-function measureTextWidth(ctx, text) {
-  const key = `${ctx.font}\0${text}`;
-  let width = cache.get(key);
-  if (width === void 0) {
-    width = ctx.measureText(text).width;
-    if (cache.size >= MAX_ENTRIES) cache.clear();
-    cache.set(key, width);
-  }
-  return width;
 }
 
 // src/engine/price-lines.ts
@@ -820,17 +929,43 @@ function panViewport(viewport, deltaBars) {
 function resetViewport(totalCount, minVisible = 8) {
   return createViewport(totalCount, minVisible);
 }
+function createTailViewport(totalCount, visibleBars, minVisible = 8) {
+  const base = createViewport(totalCount, minVisible);
+  if (totalCount <= visibleBars) return base;
+  const span = Math.max(1, visibleBars);
+  return {
+    ...base,
+    startIndex: Math.max(0, totalCount - span),
+    endIndex: totalCount - 1
+  };
+}
+function followViewport(prev, totalCount) {
+  if (prev.totalCount === totalCount) return prev;
+  if (totalCount <= 0) return createViewport(0, prev.minVisible);
+  const span = Math.max(1, prev.endIndex - prev.startIndex + 1);
+  const endIndex = totalCount - 1;
+  const startIndex = Math.max(0, endIndex - span + 1);
+  return {
+    ...prev,
+    startIndex,
+    endIndex,
+    totalCount
+  };
+}
 
 // src/hooks/useChartViewport.ts
-function useChartViewport(totalCount, minVisible = 8) {
+function useChartViewport(totalCount, minVisible = 8, options = {}) {
+  const { mode = "reset", initialVisibleBars } = options;
   const [viewport, setViewport] = useState2(
-    () => createViewport(totalCount, minVisible)
+    () => initialVisibleBars ? createTailViewport(totalCount, initialVisibleBars, minVisible) : createViewport(totalCount, minVisible)
   );
   useEffect2(() => {
-    setViewport(
-      (prev) => prev.totalCount === totalCount ? prev : createViewport(totalCount, minVisible)
-    );
-  }, [totalCount, minVisible]);
+    setViewport((prev) => {
+      if (prev.totalCount === totalCount) return prev;
+      if (mode === "follow") return followViewport(prev, totalCount);
+      return initialVisibleBars ? createTailViewport(totalCount, initialVisibleBars, minVisible) : createViewport(totalCount, minVisible);
+    });
+  }, [totalCount, minVisible, mode, initialVisibleBars]);
   const zoomIn = useCallback(() => {
     setViewport((prev) => zoomViewport(prev, 1.25, 0.5));
   }, []);
@@ -838,8 +973,10 @@ function useChartViewport(totalCount, minVisible = 8) {
     setViewport((prev) => zoomViewport(prev, 0.8, 0.5));
   }, []);
   const resetView = useCallback(() => {
-    setViewport(createViewport(totalCount, minVisible));
-  }, [totalCount, minVisible]);
+    setViewport(
+      initialVisibleBars ? createTailViewport(totalCount, initialVisibleBars, minVisible) : createViewport(totalCount, minVisible)
+    );
+  }, [totalCount, minVisible, initialVisibleBars]);
   const pan = useCallback((deltaBars) => {
     setViewport((prev) => panViewport(prev, deltaBars));
   }, []);
@@ -1091,13 +1228,20 @@ var VortexCandleChart = ({
   showControls = true,
   timeScale = false,
   crosshairSyncGroup,
+  zones,
+  viewportMode = "reset",
+  initialVisibleBars,
+  timeZone,
   theme = {}
 }) => {
   const sortedCandles = useMemo(() => {
     return Array.from(new Map(candles.map((c) => [c.t, c])).values()).sort((a, b) => a.t - b.t);
   }, [candles]);
   const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
-  const { viewport, setViewport, zoomIn, zoomOut, resetView, isZoomed, zoomLevel } = useChartViewport(sortedCandles.length, 6);
+  const { viewport, setViewport, zoomIn, zoomOut, resetView, isZoomed, zoomLevel } = useChartViewport(sortedCandles.length, 6, {
+    mode: viewportMode,
+    initialVisibleBars
+  });
   const mergedColors = useMemo(() => ({ ...VORTEX_THEME.colors, ...theme.colors || {} }), [theme]);
   const visibleCandles = useMemo(() => {
     if (sortedCandles.length === 0) return [];
@@ -1183,10 +1327,10 @@ var VortexCandleChart = ({
     for (let i = 0; i < count; i += step) {
       const c = visibleCandles[i];
       const x = timeScaleMapping ? timeToX(c.t, timeScaleMapping, chartBounds) : indexToX(i, count, chartBounds);
-      labels.push({ x, text: formatCandleTime(c.t, isIntraday) });
+      labels.push({ x, text: formatCandleTime(c.t, isIntraday, timeZone) });
     }
     return labels;
-  }, [visibleCandles, containerWidth, chartBounds, isIntraday, timeScaleMapping]);
+  }, [visibleCandles, containerWidth, chartBounds, isIntraday, timeScaleMapping, timeZone]);
   const { hover, ruler, isRulerToolActive, toggleRuler, clearRuler, pointerHandlers } = useChartPointer({
     canvasRef,
     bounds: chartBounds,
@@ -1215,6 +1359,9 @@ var VortexCandleChart = ({
     const { ctx } = setup;
     ctx.clearRect(0, 0, containerWidth, height);
     drawGridAndAxes(ctx, chartBounds, timeLabels);
+    if (zones && zones.length > 0) {
+      drawChartZones(ctx, chartBounds, zones, visibleCandles);
+    }
     drawCandlesticks(
       ctx,
       visibleCandles,
@@ -1229,7 +1376,7 @@ var VortexCandleChart = ({
     if (showWatermark) {
       drawVortexWatermark(ctx, chartBounds);
     }
-  }, [containerWidth, height, dpr, chartBounds, visibleCandles, allLines, timeLabels, timeScaleMapping, showWatermark, mergedColors, canvasRef]);
+  }, [containerWidth, height, dpr, chartBounds, visibleCandles, allLines, timeLabels, timeScaleMapping, zones, showWatermark, mergedColors, canvasRef]);
   useEffect5(() => {
     const canvas = overlayRef.current;
     if (!canvas) return;
@@ -1241,7 +1388,7 @@ var VortexCandleChart = ({
       drawRulerOverlay(ctx, chartBounds, ruler);
     }
     if (hover && hover.candle && !ruler.active) {
-      drawCrosshair(ctx, chartBounds, hover, formatCandleTime(hover.candle.t, isIntraday));
+      drawCrosshair(ctx, chartBounds, hover, formatCandleTime(hover.candle.t, isIntraday, timeZone));
     }
     if (!hover && remoteHoverTime != null && visibleCandles.length > 0) {
       const idx = nearestTimeIndex(visibleCandles, remoteHoverTime);
@@ -1255,7 +1402,7 @@ var VortexCandleChart = ({
         }
       }
     }
-  }, [containerWidth, height, dpr, chartBounds, hover, ruler, remoteHoverTime, visibleCandles, timeScaleMapping, isIntraday, overlayRef]);
+  }, [containerWidth, height, dpr, chartBounds, hover, ruler, remoteHoverTime, visibleCandles, timeScaleMapping, isIntraday, timeZone, overlayRef]);
   const hoverMetrics = useMemo(() => {
     if (!hover?.candle) return null;
     const change = formatChange(hover.candle.open, hover.candle.close);
@@ -1299,7 +1446,7 @@ var VortexCandleChart = ({
           }
         ),
         hover && hover.candle && !ruler.active && /* @__PURE__ */ jsxs3("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl tabular-nums transition-all", children: [
-          /* @__PURE__ */ jsx3("span", { className: "font-semibold text-zinc-300", children: formatCandleTime(hover.candle.t, isIntraday) }),
+          /* @__PURE__ */ jsx3("span", { className: "font-semibold text-zinc-300", children: formatCandleTime(hover.candle.t, isIntraday, timeZone) }),
           /* @__PURE__ */ jsx3("div", { className: "h-3 w-px bg-white/15" }),
           /* @__PURE__ */ jsxs3("span", { children: [
             /* @__PURE__ */ jsx3("strong", { className: "text-zinc-500 font-normal", children: "O: " }),
@@ -2342,11 +2489,15 @@ export {
   VortexRangeChart,
   VortexWatermarkOverlay,
   computeBarBounds,
+  computeZoneRect,
+  createTailViewport,
   createViewport,
   drawBarChart,
   drawBarHoverBand,
+  drawChartZones,
   drawRulerOverlay,
   drawVortexWatermark,
+  followViewport,
   formatCandleTime,
   formatChange,
   formatPrice,
@@ -2358,6 +2509,7 @@ export {
   nearestDatumIndex,
   nearestTimeIndex,
   panViewport,
+  parseZoneColor,
   publishCrosshairSync,
   resetViewport,
   subscribeCrosshairSync,

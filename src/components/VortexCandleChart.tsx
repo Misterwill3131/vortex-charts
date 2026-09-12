@@ -8,6 +8,8 @@ import {
   timeToX,
   type TimeScaleMapping,
 } from "../engine/coordinates";
+import type { ChartZone } from "../engine/zones";
+import { drawChartZones } from "../engine/zones";
 import { drawGridAndAxes } from "../engine/grid";
 import { drawCandlesticks } from "../engine/candles";
 import { drawPriceLines } from "../engine/price-lines";
@@ -42,6 +44,21 @@ export interface VortexCandleChartProps {
   timeScale?: boolean;
   /** Share this id across charts to synchronize their crosshairs */
   crosshairSyncGroup?: string;
+  /**
+   * Time-anchored zones drawn behind the candles (FVG gaps, imbalances,
+   * opening ranges). Each zone starts at its anchor candle and extends to
+   * the right edge of the plot.
+   */
+  zones?: ChartZone[];
+  /**
+   * "reset" (default): full view when the series length changes.
+   * "follow": keep the zoom span, slide to the newest bars (live charts).
+   */
+  viewportMode?: "reset" | "follow";
+  /** Open the chart on the last N bars instead of the full series */
+  initialVisibleBars?: number;
+  /** Pin time labels to a market timezone, e.g. "America/New_York" */
+  timeZone?: string;
   theme?: Partial<typeof VORTEX_THEME>;
 }
 
@@ -59,6 +76,10 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
   showControls = true,
   timeScale = false,
   crosshairSyncGroup,
+  zones,
+  viewportMode = "reset",
+  initialVisibleBars,
+  timeZone,
   theme = {},
 }) => {
   // Deduplicate and sort candles chronologically
@@ -71,7 +92,10 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
 
   // ── Viewport: zoom & pan state ──
   const { viewport, setViewport, zoomIn, zoomOut, resetView, isZoomed, zoomLevel } =
-    useChartViewport(sortedCandles.length, 6);
+    useChartViewport(sortedCandles.length, 6, {
+      mode: viewportMode,
+      initialVisibleBars,
+    });
 
   const mergedColors = useMemo(() => ({ ...VORTEX_THEME.colors, ...(theme.colors || {}) }), [theme]);
 
@@ -173,10 +197,10 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
       const x = timeScaleMapping
         ? timeToX(c.t, timeScaleMapping, chartBounds)
         : indexToX(i, count, chartBounds);
-      labels.push({ x, text: formatCandleTime(c.t, isIntraday) });
+      labels.push({ x, text: formatCandleTime(c.t, isIntraday, timeZone) });
     }
     return labels;
-  }, [visibleCandles, containerWidth, chartBounds, isIntraday, timeScaleMapping]);
+  }, [visibleCandles, containerWidth, chartBounds, isIntraday, timeScaleMapping, timeZone]);
 
   // ── Pointer interaction: hover crosshair, ruler, drag pan, wheel zoom ──
   const { hover, ruler, isRulerToolActive, toggleRuler, clearRuler, pointerHandlers } =
@@ -218,7 +242,12 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
     // 1. Grid & Axes
     drawGridAndAxes(ctx, chartBounds, timeLabels);
 
-    // 2. Visible Candlesticks (gap-aware when timeScale is enabled)
+    // 2. Zones behind candles (FVG gaps, imbalances…) — drawn before candles
+    if (zones && zones.length > 0) {
+      drawChartZones(ctx, chartBounds, zones, visibleCandles);
+    }
+
+    // 3. Visible Candlesticks (gap-aware when timeScale is enabled)
     drawCandlesticks(
       ctx,
       visibleCandles,
@@ -230,14 +259,14 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
       timeScaleMapping
     );
 
-    // 3. Price Lines & Right Badges
+    // 4. Price Lines & Right Badges
     drawPriceLines(ctx, allLines, chartBounds);
 
-    // 4. VorteX Watermark (Official branding)
+    // 5. VorteX Watermark (Official branding)
     if (showWatermark) {
       drawVortexWatermark(ctx, chartBounds);
     }
-  }, [containerWidth, height, dpr, chartBounds, visibleCandles, allLines, timeLabels, timeScaleMapping, showWatermark, mergedColors, canvasRef]);
+  }, [containerWidth, height, dpr, chartBounds, visibleCandles, allLines, timeLabels, timeScaleMapping, zones, showWatermark, mergedColors, canvasRef]);
 
   // ── Overlay canvas: lightweight crosshair + ruler, redrawn on hover only ──
   useEffect(() => {
@@ -257,7 +286,7 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
 
     // 2. Crosshair on hover (when not actively measuring)
     if (hover && hover.candle && !ruler.active) {
-      drawCrosshair(ctx, chartBounds, hover, formatCandleTime(hover.candle.t, isIntraday));
+      drawCrosshair(ctx, chartBounds, hover, formatCandleTime(hover.candle.t, isIntraday, timeZone));
     }
 
     // 3. Remote crosshair from the sync group (ghost line at the nearest bar)
@@ -276,7 +305,7 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
         }
       }
     }
-  }, [containerWidth, height, dpr, chartBounds, hover, ruler, remoteHoverTime, visibleCandles, timeScaleMapping, isIntraday, overlayRef]);
+  }, [containerWidth, height, dpr, chartBounds, hover, ruler, remoteHoverTime, visibleCandles, timeScaleMapping, isIntraday, timeZone, overlayRef]);
 
   // Compute change metrics for hover tooltip
   const hoverMetrics = useMemo(() => {
@@ -323,7 +352,7 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
       {hover && hover.candle && !ruler.active && (
         <div className="pointer-events-none absolute top-2.5 left-3 z-20 flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl tabular-nums transition-all">
           <span className="font-semibold text-zinc-300">
-            {formatCandleTime(hover.candle.t, isIntraday)}
+            {formatCandleTime(hover.candle.t, isIntraday, timeZone)}
           </span>
           <div className="h-3 w-px bg-white/15" />
           <span>

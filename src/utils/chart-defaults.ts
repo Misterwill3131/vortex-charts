@@ -1,23 +1,30 @@
 export type LineStyleType = "solid" | "dotted" | "dashed";
 
 /**
- * Formats a candle timestamp. Intraday candles show local HH:mm, daily
- * candles show the LOCAL calendar date (toLocaleDateString) — the previous
- * toISOString implementation shifted dates by one day for non-UTC timezones.
+ * Formats a candle timestamp. Intraday candles show HH:mm, daily candles
+ * show the LOCAL calendar date. Pass `timeZone` (e.g. "America/New_York")
+ * to pin the labels to a market timezone instead of the browser's.
  */
-export function formatCandleTime(timestampMs: number, isIntraday: boolean = false): string {
+export function formatCandleTime(
+  timestampMs: number,
+  isIntraday: boolean = false,
+  timeZone?: string
+): string {
   const d = new Date(timestampMs);
+  const tz = timeZone ? { timeZone } : {};
   if (isIntraday) {
     return d.toLocaleTimeString("en-US", {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
+      ...tz,
     });
   }
   return d.toLocaleDateString("en-US", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
+    ...tz,
   });
 }
 

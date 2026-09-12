@@ -65,67 +65,6 @@ declare const VORTEX_THEME: {
     };
 };
 
-interface VortexCandleChartProps {
-    candles: Candle[];
-    priceLines?: PriceLine[];
-    swingHigh?: number;
-    swingLow?: number;
-    spotPrice?: number;
-    atrBounds?: {
-        upper?: number;
-        lower?: number;
-    };
-    height?: number;
-    className?: string;
-    timeVisible?: boolean;
-    isIntraday?: boolean;
-    showWatermark?: boolean;
-    showControls?: boolean;
-    /**
-     * Map X by real timestamps instead of bar index: weekends / market pauses
-     * render as proportional empty space (recommended for daily+ timeframes).
-     */
-    timeScale?: boolean;
-    /** Share this id across charts to synchronize their crosshairs */
-    crosshairSyncGroup?: string;
-    theme?: Partial<typeof VORTEX_THEME>;
-}
-declare const VortexCandleChart: React__default.FC<VortexCandleChartProps>;
-
-interface VortexRangeChartProps {
-    candles: Candle[];
-    priorDay?: PriorDayRange | null;
-    premarket?: PremarketRange | null;
-    vwapSeries?: VwapPoint[];
-    overlayMode?: "all" | "boxes" | "vwap" | "none";
-    height?: number;
-    className?: string;
-    showWatermark?: boolean;
-    showControls?: boolean;
-    /** Share this id across charts to synchronize their crosshairs */
-    crosshairSyncGroup?: string;
-    theme?: Partial<typeof VORTEX_THEME>;
-}
-declare const VortexRangeChart: React__default.FC<VortexRangeChartProps>;
-
-interface VortexConeChartProps {
-    candles?: Candle[];
-    historicalCandles?: Candle[];
-    currentPrice?: number;
-    spotPrice?: number;
-    expirationDate?: string;
-    expectedMove?: ExpectedMoveSpec;
-    targetRange?: TargetRange;
-    dte?: number;
-    rangeHigh?: number;
-    rangeLow?: number;
-    height?: number;
-    className?: string;
-    showWatermark?: boolean;
-    theme?: Partial<typeof VORTEX_THEME>;
-}
-declare const VortexConeChart: React__default.FC<VortexConeChartProps>;
-
 interface ViewportPadding {
     top: number;
     bottom: number;
@@ -170,6 +109,132 @@ declare function viewportIndexToX(globalIndex: number, viewport: ViewportLike, b
  * Maps an X coordinate on the chart to a global data index using the active viewport window.
  */
 declare function viewportXToIndex(x: number, viewport: ViewportLike, bounds: ChartBounds): number;
+
+/**
+ * Time-anchored zone drawn behind the candles (FVG / Fair Value Gaps,
+ * imbalances, open ranges). The zone starts at the candle nearest to
+ * `anchorTime` and extends to the right edge of the plot.
+ */
+interface ChartZone {
+    /** Timestamp (ms) of the candle where the zone opens */
+    anchorTime: number;
+    /** Upper price bound */
+    top: number;
+    /** Lower price bound */
+    bottom: number;
+    /** Consequent Encroachment — 50% level, drawn dotted */
+    ce?: number;
+    /** Optional stacked label (e.g. "UP GAP $180–$185") */
+    label?: string;
+    /** Zone color as "#rrggbb" hex or "r,g,b" triplet */
+    color: string;
+}
+interface ZoneRect {
+    x1: number;
+    x2: number;
+    yTop: number;
+    yBottom: number;
+}
+/**
+ * Resolves a zone's pixel rectangle against the visible candle window.
+ * Returns null when the zone is fully out of the visible time range or
+ * degenerate. Anchors left of the visible window clamp to the plot's
+ * left edge so the zone stays visible while panning history.
+ */
+declare function computeZoneRect(zone: ChartZone, visible: {
+    t: number;
+}[], bounds: ChartBounds): ZoneRect | null;
+/**
+ * Parses "#rrggbb" or "r,g,b" into an rgb triplet for alpha compositing.
+ */
+declare function parseZoneColor(color: string): {
+    r: number;
+    g: number;
+    b: number;
+};
+/**
+ * Draws zones behind candles: translucent fill, dashed top/bottom borders,
+ * dotted CE level, and vertically de-stacked labels.
+ */
+declare function drawChartZones(ctx: CanvasRenderingContext2D, bounds: ChartBounds, zones: ChartZone[], visible: {
+    t: number;
+}[]): void;
+
+interface VortexCandleChartProps {
+    candles: Candle[];
+    priceLines?: PriceLine[];
+    swingHigh?: number;
+    swingLow?: number;
+    spotPrice?: number;
+    atrBounds?: {
+        upper?: number;
+        lower?: number;
+    };
+    height?: number;
+    className?: string;
+    timeVisible?: boolean;
+    isIntraday?: boolean;
+    showWatermark?: boolean;
+    showControls?: boolean;
+    /**
+     * Map X by real timestamps instead of bar index: weekends / market pauses
+     * render as proportional empty space (recommended for daily+ timeframes).
+     */
+    timeScale?: boolean;
+    /** Share this id across charts to synchronize their crosshairs */
+    crosshairSyncGroup?: string;
+    /**
+     * Time-anchored zones drawn behind the candles (FVG gaps, imbalances,
+     * opening ranges). Each zone starts at its anchor candle and extends to
+     * the right edge of the plot.
+     */
+    zones?: ChartZone[];
+    /**
+     * "reset" (default): full view when the series length changes.
+     * "follow": keep the zoom span, slide to the newest bars (live charts).
+     */
+    viewportMode?: "reset" | "follow";
+    /** Open the chart on the last N bars instead of the full series */
+    initialVisibleBars?: number;
+    /** Pin time labels to a market timezone, e.g. "America/New_York" */
+    timeZone?: string;
+    theme?: Partial<typeof VORTEX_THEME>;
+}
+declare const VortexCandleChart: React__default.FC<VortexCandleChartProps>;
+
+interface VortexRangeChartProps {
+    candles: Candle[];
+    priorDay?: PriorDayRange | null;
+    premarket?: PremarketRange | null;
+    vwapSeries?: VwapPoint[];
+    overlayMode?: "all" | "boxes" | "vwap" | "none";
+    height?: number;
+    className?: string;
+    showWatermark?: boolean;
+    showControls?: boolean;
+    /** Share this id across charts to synchronize their crosshairs */
+    crosshairSyncGroup?: string;
+    theme?: Partial<typeof VORTEX_THEME>;
+}
+declare const VortexRangeChart: React__default.FC<VortexRangeChartProps>;
+
+interface VortexConeChartProps {
+    candles?: Candle[];
+    historicalCandles?: Candle[];
+    currentPrice?: number;
+    spotPrice?: number;
+    expirationDate?: string;
+    expectedMove?: ExpectedMoveSpec;
+    targetRange?: TargetRange;
+    dte?: number;
+    rangeHigh?: number;
+    rangeLow?: number;
+    height?: number;
+    className?: string;
+    showWatermark?: boolean;
+    theme?: Partial<typeof VORTEX_THEME>;
+}
+declare const VortexConeChart: React__default.FC<VortexConeChartProps>;
 
 interface BarDatum {
     /** Numeric X used to anchor vertical reference lines (e.g. strike) */
@@ -311,6 +376,18 @@ declare function panViewport(viewport: ViewportState, deltaBars: number): Viewpo
  * Resets the viewport to show all candles.
  */
 declare function resetViewport(totalCount: number, minVisible?: number): ViewportState;
+/**
+ * Creates a viewport showing the LAST `visibleBars` candles (or all of them
+ * when the series is shorter). Used for live charts that open on recent data.
+ */
+declare function createTailViewport(totalCount: number, visibleBars: number, minVisible?: number): ViewportState;
+/**
+ * Resyncs a viewport after the series grew or shrank while KEEPING the user's
+ * zoom level (span) and sliding the window to the newest bars. This is the
+ * "follow" mode used by live (SSE) charts so appended candles never reset
+ * the zoom. Falls back to a full reset when the series empties.
+ */
+declare function followViewport(prev: ViewportState, totalCount: number): ViewportState;
 
 interface RulerPoint {
     x: number;
@@ -397,11 +474,21 @@ declare function useChartSurface(): {
     dpr: number;
 };
 
+interface UseChartViewportOptions {
+    /**
+     * "reset" (default): full view every time the series length changes.
+     * "follow": keep the user's zoom span and slide the window to the newest
+     * bars — designed for live-updating (SSE/WebSocket) series.
+     */
+    mode?: "reset" | "follow";
+    /** Open the chart on the last N bars instead of the full series */
+    initialVisibleBars?: number;
+}
 /**
  * Encapsulates interactive viewport state (zoom & pan) with automatic
  * resynchronization when the underlying series length changes.
  */
-declare function useChartViewport(totalCount: number, minVisible?: number): {
+declare function useChartViewport(totalCount: number, minVisible?: number, options?: UseChartViewportOptions): {
     viewport: ViewportState;
     setViewport: React.Dispatch<React.SetStateAction<ViewportState>>;
     zoomIn: () => void;
@@ -480,11 +567,11 @@ declare function useCrosshairSync({ group, localTime, onRemoteTime }: UseCrossha
 };
 
 /**
- * Formats a candle timestamp. Intraday candles show local HH:mm, daily
- * candles show the LOCAL calendar date (toLocaleDateString) — the previous
- * toISOString implementation shifted dates by one day for non-UTC timezones.
+ * Formats a candle timestamp. Intraday candles show HH:mm, daily candles
+ * show the LOCAL calendar date. Pass `timeZone` (e.g. "America/New_York")
+ * to pin the labels to a market timezone instead of the browser's.
  */
-declare function formatCandleTime(timestampMs: number, isIntraday?: boolean): string;
+declare function formatCandleTime(timestampMs: number, isIntraday?: boolean, timeZone?: string): string;
 /**
  * Adaptive price formatting:
  * - >= 10 000  : grouped thousands, 2 decimals (indices, BTC)
@@ -493,4 +580,4 @@ declare function formatCandleTime(timestampMs: number, isIntraday?: boolean): st
  */
 declare function formatPrice(price: number): string;
 
-export { type BarDatum, type BarReferenceLine, type Candle, type CrosshairSyncEvent, type ExpectedMoveSpec, type PremarketRange, type PriceLine, type PriorDayRange, type RulerPoint, type RulerState, type TargetRange, type TimeScaleMapping, VORTEX_THEME, type ViewportState, VortexBarChart, type VortexBarChartProps, VortexCandleChart, type VortexCandleChartProps, VortexChartControls, type VortexChartControlsProps, VortexConeChart, type VortexConeChartProps, VortexRangeChart, type VortexRangeChartProps, VortexWatermarkOverlay, type VwapPoint, computeBarBounds, createViewport, drawBarChart, drawBarHoverBand, drawRulerOverlay, drawVortexWatermark, formatCandleTime, formatChange, formatPrice, formatVolume, getVisibleCount, getZoomLevel, isViewportZoomed, measureTextWidth, nearestDatumIndex, nearestTimeIndex, panViewport, publishCrosshairSync, resetViewport, subscribeCrosshairSync, thinLabels, timeToX, useChartPointer, useChartSurface, useChartViewport, useCrosshairSync, viewportIndexToX, viewportXToIndex, xToTime, zoomViewport };
+export { type BarDatum, type BarReferenceLine, type Candle, type ChartZone, type CrosshairSyncEvent, type ExpectedMoveSpec, type PremarketRange, type PriceLine, type PriorDayRange, type RulerPoint, type RulerState, type TargetRange, type TimeScaleMapping, VORTEX_THEME, type ViewportState, VortexBarChart, type VortexBarChartProps, VortexCandleChart, type VortexCandleChartProps, VortexChartControls, type VortexChartControlsProps, VortexConeChart, type VortexConeChartProps, VortexRangeChart, type VortexRangeChartProps, VortexWatermarkOverlay, type VwapPoint, computeBarBounds, computeZoneRect, createTailViewport, createViewport, drawBarChart, drawBarHoverBand, drawChartZones, drawRulerOverlay, drawVortexWatermark, followViewport, formatCandleTime, formatChange, formatPrice, formatVolume, getVisibleCount, getZoomLevel, isViewportZoomed, measureTextWidth, nearestDatumIndex, nearestTimeIndex, panViewport, parseZoneColor, publishCrosshairSync, resetViewport, subscribeCrosshairSync, thinLabels, timeToX, useChartPointer, useChartSurface, useChartViewport, useCrosshairSync, viewportIndexToX, viewportXToIndex, xToTime, zoomViewport };

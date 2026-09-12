@@ -2,7 +2,7 @@
 
 > Official financial and quantitative charting library for the **VorteX** platform. Reusable across all VorteX applications, micro-frontends, and dashboards.
 
-[![NPM Version](https://img.shields.io/badge/version-0.6.0-cyan.svg)](https://github.com/Misterwill3131/vortex-charts)
+[![NPM Version](https://img.shields.io/badge/version-0.7.0-cyan.svg)](https://github.com/Misterwill3131/vortex-charts)
 [![VorteX Theme](https://img.shields.io/badge/theme-vortex--dark-purple.svg)](https://github.com/Misterwill3131/vortex-charts)
 [![License](https://img.shields.io/badge/license-UNLICENSED-rose.svg)](https://github.com/Misterwill3131/vortex-charts)
 
@@ -17,7 +17,7 @@
 - **Multi-chart crosshair sync**: pass the same `crosshairSyncGroup` id to several charts to synchronize their crosshairs (ghost line at the nearest bar, tolerance-aware).
 - **Client & SSR Ready**: Shipped with `"use client";` banners on both ESM/CJS bundles and complete TypeScript types.
 - **Dedicated Quantitative Components**:
-  - `VortexCandleChart`: Multi-timeframe candlesticks with dynamic price lines, high/low swings, ATR bounds.
+  - `VortexCandleChart`: Multi-timeframe candlesticks with dynamic price lines, high/low swings, ATR bounds, time-anchored zones (FVG gaps), live `follow` viewport mode and market-timezone axis labels.
   - `VortexRangeChart`: Session structure visualization (Prior-Day range boxes, Premarket range boxes, and anchored VWAP curve).
   - `VortexConeChart`: Options expected move and forward volatility cone projections.
   - `VortexBarChart`: Sign-based or grouped histograms with line overlay and vertical reference lines (GEX profiles, gamma-by-expiry).

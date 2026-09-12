@@ -131,3 +131,42 @@ export function panViewport(viewport: ViewportState, deltaBars: number): Viewpor
 export function resetViewport(totalCount: number, minVisible: number = 8): ViewportState {
   return createViewport(totalCount, minVisible);
 }
+
+/**
+ * Creates a viewport showing the LAST `visibleBars` candles (or all of them
+ * when the series is shorter). Used for live charts that open on recent data.
+ */
+export function createTailViewport(
+  totalCount: number,
+  visibleBars: number,
+  minVisible: number = 8
+): ViewportState {
+  const base = createViewport(totalCount, minVisible);
+  if (totalCount <= visibleBars) return base;
+  const span = Math.max(1, visibleBars);
+  return {
+    ...base,
+    startIndex: Math.max(0, totalCount - span),
+    endIndex: totalCount - 1,
+  };
+}
+
+/**
+ * Resyncs a viewport after the series grew or shrank while KEEPING the user's
+ * zoom level (span) and sliding the window to the newest bars. This is the
+ * "follow" mode used by live (SSE) charts so appended candles never reset
+ * the zoom. Falls back to a full reset when the series empties.
+ */
+export function followViewport(prev: ViewportState, totalCount: number): ViewportState {
+  if (prev.totalCount === totalCount) return prev;
+  if (totalCount <= 0) return createViewport(0, prev.minVisible);
+  const span = Math.max(1, prev.endIndex - prev.startIndex + 1);
+  const endIndex = totalCount - 1;
+  const startIndex = Math.max(0, endIndex - span + 1);
+  return {
+    ...prev,
+    startIndex,
+    endIndex,
+    totalCount,
+  };
+}

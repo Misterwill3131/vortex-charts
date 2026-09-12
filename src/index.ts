@@ -8,6 +8,8 @@ export { VortexChartControls, type VortexChartControlsProps } from "./components
 // Engine & Interactive Tools
 export {
   createViewport,
+  createTailViewport,
+  followViewport,
   zoomViewport,
   panViewport,
   resetViewport,
@@ -24,6 +26,12 @@ export {
   nearestTimeIndex,
   type TimeScaleMapping,
 } from "./engine/coordinates";
+export {
+  drawChartZones,
+  computeZoneRect,
+  parseZoneColor,
+  type ChartZone,
+} from "./engine/zones";
 export { measureTextWidth } from "./engine/text-cache";
 export {
   computeBarBounds,

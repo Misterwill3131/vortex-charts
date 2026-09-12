@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   createViewport,
+  createTailViewport,
+  followViewport,
   isViewportZoomed,
   getZoomLevel,
   getVisibleCount,
@@ -86,5 +88,57 @@ describe("Viewport Engine", () => {
     expect(reset.startIndex).toBe(0);
     expect(reset.endIndex).toBe(59);
     expect(isViewportZoomed(reset)).toBe(false);
+  });
+});
+
+describe("tail viewport (live charts)", () => {
+  it("opens on the last N bars when the series is longer", () => {
+    const vp = createTailViewport(1000, 450, 6);
+    expect(vp.startIndex).toBe(550);
+    expect(vp.endIndex).toBe(999);
+    expect(getVisibleCount(vp)).toBe(450);
+    expect(isViewportZoomed(vp)).toBe(true);
+  });
+
+  it("shows everything when the series is shorter than the window", () => {
+    const vp = createTailViewport(300, 450, 6);
+    expect(vp.startIndex).toBe(0);
+    expect(vp.endIndex).toBe(299);
+    expect(isViewportZoomed(vp)).toBe(false);
+  });
+
+  it("handles empty series", () => {
+    const vp = createTailViewport(0, 450, 6);
+    expect(vp.startIndex).toBe(0);
+    expect(vp.totalCount).toBe(0);
+  });
+});
+
+describe("followViewport (live growth)", () => {
+  it("keeps the zoom span and slides to the newest bars", () => {
+    const zoomed = createViewport(100, 10);
+    const span = 30;
+    const panned = {
+      ...zoomed,
+      startIndex: 20,
+      endIndex: 20 + span - 1,
+      totalCount: 100,
+    };
+    const next = followViewport(panned, 102);
+    expect(next.totalCount).toBe(102);
+    expect(getVisibleCount(next)).toBe(span);
+    expect(next.endIndex).toBe(101);
+    expect(next.startIndex).toBe(102 - span);
+  });
+
+  it("returns the same reference when the count is unchanged", () => {
+    const vp = createViewport(50, 10);
+    expect(followViewport(vp, 50)).toBe(vp);
+  });
+
+  it("falls back to an empty viewport when the series empties", () => {
+    const next = followViewport(createViewport(50, 10), 0);
+    expect(next.totalCount).toBe(0);
+    expect(getVisibleCount(next)).toBe(0);
   });
 });

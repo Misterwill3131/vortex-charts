@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  createTailViewport,
   createViewport,
+  followViewport,
   getZoomLevel,
   isViewportZoomed,
   panViewport,
@@ -8,22 +10,45 @@ import {
   type ViewportState,
 } from "../engine/viewport";
 
+export interface UseChartViewportOptions {
+  /**
+   * "reset" (default): full view every time the series length changes.
+   * "follow": keep the user's zoom span and slide the window to the newest
+   * bars — designed for live-updating (SSE/WebSocket) series.
+   */
+  mode?: "reset" | "follow";
+  /** Open the chart on the last N bars instead of the full series */
+  initialVisibleBars?: number;
+}
+
 /**
  * Encapsulates interactive viewport state (zoom & pan) with automatic
  * resynchronization when the underlying series length changes.
  */
-export function useChartViewport(totalCount: number, minVisible: number = 8) {
+export function useChartViewport(
+  totalCount: number,
+  minVisible: number = 8,
+  options: UseChartViewportOptions = {}
+) {
+  const { mode = "reset", initialVisibleBars } = options;
+
   const [viewport, setViewport] = useState<ViewportState>(() =>
-    createViewport(totalCount, minVisible)
+    initialVisibleBars
+      ? createTailViewport(totalCount, initialVisibleBars, minVisible)
+      : createViewport(totalCount, minVisible)
   );
 
   // Resync when the series grows or shrinks; returns the same reference
   // when the count is unchanged so no re-render is triggered.
   useEffect(() => {
-    setViewport((prev) =>
-      prev.totalCount === totalCount ? prev : createViewport(totalCount, minVisible)
-    );
-  }, [totalCount, minVisible]);
+    setViewport((prev) => {
+      if (prev.totalCount === totalCount) return prev;
+      if (mode === "follow") return followViewport(prev, totalCount);
+      return initialVisibleBars
+        ? createTailViewport(totalCount, initialVisibleBars, minVisible)
+        : createViewport(totalCount, minVisible);
+    });
+  }, [totalCount, minVisible, mode, initialVisibleBars]);
 
   const zoomIn = useCallback(() => {
     setViewport((prev) => zoomViewport(prev, 1.25, 0.5));
@@ -34,8 +59,12 @@ export function useChartViewport(totalCount: number, minVisible: number = 8) {
   }, []);
 
   const resetView = useCallback(() => {
-    setViewport(createViewport(totalCount, minVisible));
-  }, [totalCount, minVisible]);
+    setViewport(
+      initialVisibleBars
+        ? createTailViewport(totalCount, initialVisibleBars, minVisible)
+        : createViewport(totalCount, minVisible)
+    );
+  }, [totalCount, minVisible, initialVisibleBars]);
 
   const pan = useCallback((deltaBars: number) => {
     setViewport((prev) => panViewport(prev, deltaBars));
