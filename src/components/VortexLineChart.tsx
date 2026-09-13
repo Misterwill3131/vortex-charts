@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { type VortexThemeOverride } from "../theme/tokens";
 import { computeBounds, indexToX, priceToY, type ChartBounds } from "../engine/coordinates";
 import { drawGridAndAxes } from "../engine/grid";
@@ -139,7 +139,7 @@ export const VortexLineChart: React.FC<VortexLineChartProps> = ({
           }}
         >
           <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-1">
-            <span className="font-semibold text-white">{hoveredItem.label || `Index ${hoverIndex + 1}`}</span>
+            <span className="font-semibold text-white">{hoveredItem.label || (hoverIndex !== null ? `Index ${hoverIndex + 1}` : "")}</span>
             <span className="text-[10px] text-zinc-500 font-mono">LIVE</span>
           </div>
           <div className="flex items-center gap-2">
