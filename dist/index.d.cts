@@ -348,6 +348,450 @@ interface VortexBarChartProps {
 }
 declare const VortexBarChart: React__default.FC<VortexBarChartProps>;
 
+interface LineSeriesPoint {
+    x?: number;
+    y?: number;
+    price: number;
+    t?: number;
+    label?: string;
+}
+interface DrawLineOptions {
+    color?: string;
+    lineWidth?: number;
+    showArea?: boolean;
+    areaTopOpacity?: number;
+    showPoints?: boolean;
+    pointRadius?: number;
+    glow?: boolean;
+}
+/**
+ * Pure Canvas 2D renderer for a continuous financial/quantitative line series.
+ */
+declare function drawLineChart(ctx: CanvasRenderingContext2D, data: LineSeriesPoint[], bounds: ChartBounds, options?: DrawLineOptions): void;
+
+interface VortexLineChartProps {
+    data: LineSeriesPoint[];
+    height?: number;
+    className?: string;
+    color?: string;
+    showArea?: boolean;
+    showPoints?: boolean;
+    showWatermark?: boolean;
+    theme?: VortexThemeOverride;
+}
+declare const VortexLineChart: React__default.FC<VortexLineChartProps>;
+
+interface VortexOhlcChartProps {
+    data: Candle[];
+    height?: number;
+    className?: string;
+    upColor?: string;
+    downColor?: string;
+    lineWidth?: number;
+    tickWidth?: number;
+    showWatermark?: boolean;
+    theme?: VortexThemeOverride;
+}
+declare const VortexOhlcChart: React__default.FC<VortexOhlcChartProps>;
+
+interface VortexHeikinAshiChartProps {
+    data: Candle[];
+    height?: number;
+    className?: string;
+    upColor?: string;
+    downColor?: string;
+    showWatermark?: boolean;
+    theme?: VortexThemeOverride;
+}
+declare const VortexHeikinAshiChart: React__default.FC<VortexHeikinAshiChartProps>;
+
+interface VortexRenkoChartProps {
+    data: Candle[];
+    brickSize?: number;
+    height?: number;
+    className?: string;
+    upColor?: string;
+    downColor?: string;
+    showWatermark?: boolean;
+    theme?: VortexThemeOverride;
+}
+declare const VortexRenkoChart: React__default.FC<VortexRenkoChartProps>;
+
+interface VortexPointFigureChartProps {
+    data: Candle[];
+    boxSize?: number;
+    reversal?: number;
+    height?: number;
+    className?: string;
+    xColor?: string;
+    oColor?: string;
+    showWatermark?: boolean;
+    theme?: VortexThemeOverride;
+}
+declare const VortexPointFigureChart: React__default.FC<VortexPointFigureChartProps>;
+
+interface FootprintLevel {
+    price: number;
+    bidVolume: number;
+    askVolume: number;
+    delta?: number;
+}
+interface FootprintBar {
+    t: number;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    totalVolume: number;
+    levels: FootprintLevel[];
+}
+interface DrawFootprintOptions {
+    upColor?: string;
+    downColor?: string;
+    bidColor?: string;
+    askColor?: string;
+    showText?: boolean;
+}
+/**
+ * Pure Canvas 2D renderer for Footprint (Order Flow) cluster charts.
+ * Displays Bid x Ask volume executions across price rungs.
+ */
+declare function drawFootprintChart(ctx: CanvasRenderingContext2D, bars: FootprintBar[], bounds: ChartBounds, options?: DrawFootprintOptions): void;
+
+interface VortexFootprintChartProps {
+    data: FootprintBar[];
+    height?: number;
+    className?: string;
+    upColor?: string;
+    downColor?: string;
+    bidColor?: string;
+    askColor?: string;
+    showText?: boolean;
+    showWatermark?: boolean;
+    theme?: VortexThemeOverride;
+}
+declare const VortexFootprintChart: React__default.FC<VortexFootprintChartProps>;
+
+interface VortexVolumeProfileChartProps {
+    data: Candle[];
+    rows?: number;
+    valueAreaRatio?: number;
+    alignment?: "left" | "right";
+    showCandles?: boolean;
+    pocColor?: string;
+    valueAreaColor?: string;
+    otherAreaColor?: string;
+    height?: number;
+    className?: string;
+    showWatermark?: boolean;
+    theme?: VortexThemeOverride;
+}
+declare const VortexVolumeProfileChart: React__default.FC<VortexVolumeProfileChartProps>;
+
+interface TickData {
+    price: number;
+    volume?: number;
+    t?: number;
+}
+/**
+ * Computes constant-range bars from price ticks or high/low points.
+ * A new candle is sealed when (high - low) reaches rangeSize.
+ */
+declare function computeRangeBars(ticks: (TickData | Candle)[], rangeSize?: number): Candle[];
+
+interface VortexRangeBarChartProps {
+    data: (TickData | Candle)[];
+    rangeSize?: number;
+    height?: number;
+    className?: string;
+    upColor?: string;
+    downColor?: string;
+    showWatermark?: boolean;
+    theme?: VortexThemeOverride;
+}
+declare const VortexRangeBarChart: React__default.FC<VortexRangeBarChartProps>;
+
+interface MultiLineSeries {
+    name: string;
+    color?: string;
+    data: (LineSeriesPoint | number)[];
+}
+interface VortexMultiLineChartProps {
+    series: MultiLineSeries[];
+    height?: number;
+    className?: string;
+    showPoints?: boolean;
+    showWatermark?: boolean;
+    theme?: VortexThemeOverride;
+}
+declare const VortexMultiLineChart: React__default.FC<VortexMultiLineChartProps>;
+
+interface ScatterPoint {
+    x: number;
+    y: number;
+    size?: number;
+    color?: string;
+    label?: string;
+}
+interface DrawScatterOptions {
+    pointColor?: string;
+    defaultRadius?: number;
+    showTrendLine?: boolean;
+    trendLineColor?: string;
+    glow?: boolean;
+}
+interface ScatterBounds {
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+}
+/**
+ * Computes min/max bounds for Cartesian X/Y scatter data.
+ */
+declare function computeScatterBounds(points: ScatterPoint[]): ScatterBounds;
+/**
+ * Pure Canvas 2D renderer for Scatter Plots / Bubble Charts.
+ */
+declare function drawScatterPlot(ctx: CanvasRenderingContext2D, points: ScatterPoint[], bounds: ChartBounds, scatterBounds: ScatterBounds, options?: DrawScatterOptions): void;
+
+interface VortexScatterPlotProps {
+    data: ScatterPoint[];
+    height?: number;
+    className?: string;
+    pointColor?: string;
+    defaultRadius?: number;
+    showTrendLine?: boolean;
+    trendLineColor?: string;
+    glow?: boolean;
+    showWatermark?: boolean;
+    theme?: VortexThemeOverride;
+}
+declare const VortexScatterPlot: React__default.FC<VortexScatterPlotProps>;
+
+interface HeatmapData {
+    xLabels: string[];
+    yLabels: string[];
+    values: number[][];
+    minValue?: number;
+    maxValue?: number;
+}
+interface DrawHeatmapOptions {
+    colorScale?: "vortex" | "coolwarm" | "emerald";
+    showValues?: boolean;
+    cellPadding?: number;
+}
+/**
+ * Pure Canvas 2D renderer for 2D Matrix Heatmaps (correlation, activity, volatility).
+ */
+declare function drawHeatmap(ctx: CanvasRenderingContext2D, data: HeatmapData, bounds: ChartBounds, options?: DrawHeatmapOptions): void;
+
+interface VortexHeatmapProps {
+    data: HeatmapData;
+    height?: number;
+    className?: string;
+    colorScale?: "vortex" | "coolwarm" | "emerald";
+    showValues?: boolean;
+    cellPadding?: number;
+    showWatermark?: boolean;
+    theme?: VortexThemeOverride;
+}
+declare const VortexHeatmap: React__default.FC<VortexHeatmapProps>;
+
+interface AreaDataPoint {
+    x?: number;
+    y: number;
+    label?: string;
+}
+interface DrawAreaOptions {
+    color?: string;
+    gradientTopOpacity?: number;
+    gradientBottomOpacity?: number;
+    lineWidth?: number;
+    showLine?: boolean;
+}
+/**
+ * Pure Canvas 2D renderer for Area Charts.
+ */
+declare function drawAreaChart(ctx: CanvasRenderingContext2D, data: AreaDataPoint[], bounds: ChartBounds, options?: DrawAreaOptions): void;
+
+interface VortexAreaChartProps {
+    data: AreaDataPoint[];
+    height?: number;
+    className?: string;
+    color?: string;
+    gradientTopOpacity?: number;
+    gradientBottomOpacity?: number;
+    lineWidth?: number;
+    showLine?: boolean;
+    showWatermark?: boolean;
+    theme?: VortexThemeOverride;
+}
+declare const VortexAreaChart: React__default.FC<VortexAreaChartProps>;
+
+interface BoxPlotItem {
+    label: string;
+    min: number;
+    q1: number;
+    median: number;
+    q3: number;
+    max: number;
+    outliers?: number[];
+}
+interface DrawBoxPlotOptions {
+    boxColor?: string;
+    medianColor?: string;
+    whiskerColor?: string;
+    outlierColor?: string;
+}
+/**
+ * Computes 5-number statistical summary (Min, Q1, Median, Q3, Max) and outliers.
+ */
+declare function computeBoxPlotStats(rawValues: number[], label?: string): BoxPlotItem;
+/**
+ * Pure Canvas 2D renderer for statistical Box-and-Whisker Plots.
+ */
+declare function drawBoxPlot(ctx: CanvasRenderingContext2D, data: BoxPlotItem[], bounds: ChartBounds, options?: DrawBoxPlotOptions): void;
+
+type BoxPlotInputItem = BoxPlotItem | {
+    label: string;
+    values: number[];
+};
+interface VortexBoxPlotProps {
+    data: BoxPlotInputItem[];
+    height?: number;
+    className?: string;
+    boxColor?: string;
+    medianColor?: string;
+    whiskerColor?: string;
+    outlierColor?: string;
+    showWatermark?: boolean;
+    theme?: VortexThemeOverride;
+}
+declare const VortexBoxPlot: React__default.FC<VortexBoxPlotProps>;
+
+interface WaterfallBar {
+    label: string;
+    value: number;
+    isTotal?: boolean;
+}
+interface DrawWaterfallOptions {
+    positiveColor?: string;
+    negativeColor?: string;
+    totalColor?: string;
+    connectorColor?: string;
+}
+/**
+ * Pure Canvas 2D renderer for Waterfall charts (sequential walk from baseline to total).
+ */
+declare function drawWaterfallChart(ctx: CanvasRenderingContext2D, bars: WaterfallBar[], bounds: ChartBounds, options?: DrawWaterfallOptions): void;
+
+interface VortexWaterfallChartProps {
+    data: WaterfallBar[];
+    height?: number;
+    className?: string;
+    positiveColor?: string;
+    negativeColor?: string;
+    totalColor?: string;
+    connectorColor?: string;
+    showWatermark?: boolean;
+    theme?: VortexThemeOverride;
+}
+declare const VortexWaterfallChart: React__default.FC<VortexWaterfallChartProps>;
+
+interface RadarDimension {
+    name: string;
+    max?: number;
+}
+interface RadarSeries {
+    name: string;
+    values: number[];
+    color?: string;
+    fillOpacity?: number;
+}
+interface DrawRadarOptions {
+    levels?: number;
+    gridColor?: string;
+    labelColor?: string;
+}
+/**
+ * Pure Canvas 2D renderer for Radar / Spider charts (multidimensional profile comparison).
+ */
+declare function drawRadarChart(ctx: CanvasRenderingContext2D, dimensions: RadarDimension[], seriesList: RadarSeries[], bounds: ChartBounds, options?: DrawRadarOptions): void;
+
+interface VortexRadarChartProps {
+    dimensions: RadarDimension[];
+    series: RadarSeries[];
+    height?: number;
+    className?: string;
+    levels?: number;
+    gridColor?: string;
+    labelColor?: string;
+    showWatermark?: boolean;
+    theme?: VortexThemeOverride;
+}
+declare const VortexRadarChart: React__default.FC<VortexRadarChartProps>;
+
+interface PieSlice {
+    label: string;
+    value: number;
+    color?: string;
+}
+interface DrawPieOptions {
+    donutHole?: number;
+    hoverIndex?: number | null;
+    borderColor?: string;
+    showLabels?: boolean;
+}
+/**
+ * Pure Canvas 2D renderer for Pie and Donut charts.
+ */
+declare function drawPieChart(ctx: CanvasRenderingContext2D, slices: PieSlice[], bounds: ChartBounds, options?: DrawPieOptions): void;
+
+interface VortexPieChartProps {
+    data: PieSlice[];
+    height?: number;
+    className?: string;
+    donut?: boolean;
+    donutHole?: number;
+    borderColor?: string;
+    showLabels?: boolean;
+    showWatermark?: boolean;
+    theme?: VortexThemeOverride;
+}
+declare const VortexPieChart: React__default.FC<VortexPieChartProps>;
+
+interface GeoPolygon {
+    points: [number, number][];
+}
+interface GeoRegion {
+    id: string;
+    name: string;
+    value: number;
+    polygons: GeoPolygon[];
+}
+interface DrawChoroplethOptions {
+    colorScale?: (ratio: number) => string;
+    defaultColor?: string;
+    borderColor?: string;
+    showLabels?: boolean;
+}
+/**
+ * Pure Canvas 2D renderer for thematic Choropleth Maps.
+ */
+declare function drawChoropleth(ctx: CanvasRenderingContext2D, regions: GeoRegion[], bounds: ChartBounds, options?: DrawChoroplethOptions): void;
+
+interface VortexChoroplethMapProps {
+    regions: GeoRegion[];
+    height?: number;
+    className?: string;
+    borderColor?: string;
+    showLabels?: boolean;
+    showWatermark?: boolean;
+    theme?: VortexThemeOverride;
+}
+declare const VortexChoroplethMap: React__default.FC<VortexChoroplethMapProps>;
+
 interface VortexChartControlsProps {
     onZoomIn: () => void;
     onZoomOut: () => void;
@@ -463,6 +907,101 @@ declare function formatChange(open: number, close: number): {
     isBullish: boolean;
     text: string;
 };
+
+interface DrawOhlcOptions {
+    upColor?: string;
+    downColor?: string;
+    lineWidth?: number;
+    tickWidth?: number;
+}
+/**
+ * Pure Canvas 2D renderer for western OHLC Bar Charts.
+ * Vertical bar from Low to High, left tick for Open, right tick for Close.
+ */
+declare function drawOhlcBars(ctx: CanvasRenderingContext2D, candles: Candle[], bounds: ChartBounds, options?: DrawOhlcOptions): void;
+
+/**
+ * Transforms standard OHLC candles into Heikin-Ashi smoothed candles.
+ * Filters intraday market noise and highlights primary directional momentum.
+ */
+declare function computeHeikinAshi(candles: Candle[]): Candle[];
+
+interface RenkoBrick {
+    open: number;
+    close: number;
+    high: number;
+    low: number;
+    isUp: boolean;
+    t: number;
+}
+interface DrawRenkoOptions {
+    upColor?: string;
+    downColor?: string;
+    borderColor?: string;
+}
+/**
+ * Transforms candles into time-independent Renko bricks.
+ * Each brick represents an exact price movement delta.
+ */
+declare function computeRenkoBricks(candles: Candle[], brickSize?: number): RenkoBrick[];
+/**
+ * Pure Canvas 2D renderer for Renko bricks.
+ */
+declare function drawRenkoBricks(ctx: CanvasRenderingContext2D, bricks: RenkoBrick[], bounds: ChartBounds, options?: DrawRenkoOptions): void;
+
+type PnFType = "X" | "O";
+interface PnFColumn {
+    type: PnFType;
+    boxes: number[];
+    t: number;
+}
+interface DrawPnFOptions {
+    xColor?: string;
+    oColor?: string;
+    gridColor?: string;
+}
+/**
+ * Computes Point and Figure columns from a candle price series.
+ * Standard method: High/Low or Close with boxSize and reversal count (default 3).
+ */
+declare function computePointAndFigure(candles: Candle[], boxSize?: number, reversal?: number): PnFColumn[];
+/**
+ * Pure Canvas 2D renderer for Point & Figure charts.
+ */
+declare function drawPointAndFigure(ctx: CanvasRenderingContext2D, columns: PnFColumn[], bounds: ChartBounds, boxSize: number, options?: DrawPnFOptions): void;
+
+interface VolumeProfileBin {
+    price: number;
+    priceTop: number;
+    priceBottom: number;
+    volume: number;
+    isValueArea: boolean;
+    isPoc: boolean;
+}
+interface VolumeProfileResult {
+    bins: VolumeProfileBin[];
+    pocPrice: number;
+    vahPrice: number;
+    valPrice: number;
+    totalVolume: number;
+    maxBinVolume: number;
+}
+interface DrawVolumeProfileOptions {
+    alignment?: "left" | "right";
+    widthRatio?: number;
+    pocColor?: string;
+    valueAreaColor?: string;
+    otherAreaColor?: string;
+    showLines?: boolean;
+}
+/**
+ * Computes Volume Profile histogram distribution, POC, VAH, and VAL from candles.
+ */
+declare function computeVolumeProfile(candles: Candle[], rows?: number, valueAreaRatio?: number): VolumeProfileResult | null;
+/**
+ * Pure Canvas 2D renderer for horizontal Volume Profile.
+ */
+declare function drawVolumeProfile(ctx: CanvasRenderingContext2D, profile: VolumeProfileResult, bounds: ChartBounds, options?: DrawVolumeProfileOptions): void;
 
 /**
  * Draws the clean "VorteXbot.app" watermark on the Canvas (no third-party or placeholder icon).
@@ -627,4 +1166,4 @@ declare function formatCandleTime(timestampMs: number, isIntraday?: boolean, tim
  */
 declare function formatPrice(price: number): string;
 
-export { type BarDatum, type BarReferenceLine, type Candle, type ChartHoverZone, type ChartZone, type CrosshairSyncEvent, type ExpectedMoveSpec, type PremarketRange, type PriceLine, type PriorDayRange, type RulerPoint, type RulerState, type TargetRange, type TimeScaleMapping, VORTEX_THEME, type VerticalScaleOptions, type ViewportState, VortexBarChart, type VortexBarChartProps, VortexCandleChart, type VortexCandleChartProps, VortexChartControls, type VortexChartControlsProps, VortexConeChart, type VortexConeChartProps, VortexRangeChart, type VortexRangeChartProps, type VortexThemeOverride, VortexWatermarkOverlay, type VwapPoint, computeBarBounds, computeZoneRect, createTailViewport, createViewport, drawBarChart, drawBarHoverBand, drawChartZones, drawRulerOverlay, drawVortexWatermark, followViewport, formatCandleTime, formatChange, formatPrice, formatVolume, getVisibleCount, getZoomLevel, isViewportZoomed, measureTextWidth, nearestDatumIndex, nearestTimeIndex, panViewport, parseZoneColor, publishCrosshairSync, resetViewport, subscribeCrosshairSync, thinLabels, timeToX, useChartPointer, useChartSurface, useChartViewport, useCrosshairSync, viewportIndexToX, viewportXToIndex, xToTime, zoomViewport };
+export { type AreaDataPoint, type BarDatum, type BarReferenceLine, type BoxPlotInputItem, type BoxPlotItem, type Candle, type ChartHoverZone, type ChartZone, type CrosshairSyncEvent, type DrawAreaOptions, type DrawBoxPlotOptions, type DrawChoroplethOptions, type DrawFootprintOptions, type DrawHeatmapOptions, type DrawLineOptions, type DrawOhlcOptions, type DrawPieOptions, type DrawPnFOptions, type DrawRadarOptions, type DrawRenkoOptions, type DrawScatterOptions, type DrawVolumeProfileOptions, type DrawWaterfallOptions, type ExpectedMoveSpec, type FootprintBar, type FootprintLevel, type GeoPolygon, type GeoRegion, type HeatmapData, type LineSeriesPoint, type MultiLineSeries, type PieSlice, type PnFColumn, type PnFType, type PremarketRange, type PriceLine, type PriorDayRange, type RadarDimension, type RadarSeries, type RenkoBrick, type RulerPoint, type RulerState, type ScatterBounds, type ScatterPoint, type TargetRange, type TickData, type TimeScaleMapping, VORTEX_THEME, type VerticalScaleOptions, type ViewportState, type VolumeProfileBin, type VolumeProfileResult, VortexAreaChart, type VortexAreaChartProps, VortexBarChart, type VortexBarChartProps, VortexBoxPlot, type VortexBoxPlotProps, VortexCandleChart, type VortexCandleChartProps, VortexChartControls, type VortexChartControlsProps, VortexChoroplethMap, type VortexChoroplethMapProps, VortexConeChart, type VortexConeChartProps, VortexFootprintChart, type VortexFootprintChartProps, VortexHeatmap, type VortexHeatmapProps, VortexHeikinAshiChart, type VortexHeikinAshiChartProps, VortexLineChart, type VortexLineChartProps, VortexMultiLineChart, type VortexMultiLineChartProps, VortexOhlcChart, type VortexOhlcChartProps, VortexPieChart, type VortexPieChartProps, VortexPointFigureChart, type VortexPointFigureChartProps, VortexRadarChart, type VortexRadarChartProps, VortexRangeBarChart, type VortexRangeBarChartProps, VortexRangeChart, type VortexRangeChartProps, VortexRenkoChart, type VortexRenkoChartProps, VortexScatterPlot, type VortexScatterPlotProps, type VortexThemeOverride, VortexVolumeProfileChart, type VortexVolumeProfileChartProps, VortexWaterfallChart, type VortexWaterfallChartProps, VortexWatermarkOverlay, type VwapPoint, type WaterfallBar, computeBarBounds, computeBoxPlotStats, computeHeikinAshi, computePointAndFigure, computeRangeBars, computeRenkoBricks, computeScatterBounds, computeVolumeProfile, computeZoneRect, createTailViewport, createViewport, drawAreaChart, drawBarChart, drawBarHoverBand, drawBoxPlot, drawChartZones, drawChoropleth, drawFootprintChart, drawHeatmap, drawLineChart, drawOhlcBars, drawPieChart, drawPointAndFigure, drawRadarChart, drawRenkoBricks, drawRulerOverlay, drawScatterPlot, drawVolumeProfile, drawVortexWatermark, drawWaterfallChart, followViewport, formatCandleTime, formatChange, formatPrice, formatVolume, getVisibleCount, getZoomLevel, isViewportZoomed, measureTextWidth, nearestDatumIndex, nearestTimeIndex, panViewport, parseZoneColor, publishCrosshairSync, resetViewport, subscribeCrosshairSync, thinLabels, timeToX, useChartPointer, useChartSurface, useChartViewport, useCrosshairSync, viewportIndexToX, viewportXToIndex, xToTime, zoomViewport };

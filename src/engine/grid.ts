@@ -5,7 +5,7 @@ import { formatPrice } from "../utils/chart-defaults";
 export function drawGridAndAxes(
   ctx: CanvasRenderingContext2D,
   bounds: ChartBounds,
-  timeLabels: { x: number; text: string }[],
+  timeLabels: { x: number; text: string }[] = [],
   tickCount: number = 5
 ) {
   const { chartWidth, chartHeight, plotWidth, padding, minPrice, maxPrice, priceRange } = bounds;

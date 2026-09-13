@@ -1,8 +1,25 @@
-// Components
+// Components — 19 Native Vortex Chart Models Suite
 export { VortexCandleChart, type VortexCandleChartProps } from "./components/VortexCandleChart";
 export { VortexRangeChart, type VortexRangeChartProps } from "./components/VortexRangeChart";
 export { VortexConeChart, type VortexConeChartProps } from "./components/VortexConeChart";
 export { VortexBarChart, type VortexBarChartProps } from "./components/VortexBarChart";
+export { VortexLineChart, type VortexLineChartProps } from "./components/VortexLineChart";
+export { VortexOhlcChart, type VortexOhlcChartProps } from "./components/VortexOhlcChart";
+export { VortexHeikinAshiChart, type VortexHeikinAshiChartProps } from "./components/VortexHeikinAshiChart";
+export { VortexRenkoChart, type VortexRenkoChartProps } from "./components/VortexRenkoChart";
+export { VortexPointFigureChart, type VortexPointFigureChartProps } from "./components/VortexPointFigureChart";
+export { VortexFootprintChart, type VortexFootprintChartProps } from "./components/VortexFootprintChart";
+export { VortexVolumeProfileChart, type VortexVolumeProfileChartProps } from "./components/VortexVolumeProfileChart";
+export { VortexRangeBarChart, type VortexRangeBarChartProps } from "./components/VortexRangeBarChart";
+export { VortexMultiLineChart, type VortexMultiLineChartProps, type MultiLineSeries } from "./components/VortexMultiLineChart";
+export { VortexScatterPlot, type VortexScatterPlotProps } from "./components/VortexScatterPlot";
+export { VortexHeatmap, type VortexHeatmapProps } from "./components/VortexHeatmap";
+export { VortexAreaChart, type VortexAreaChartProps } from "./components/VortexAreaChart";
+export { VortexBoxPlot, type VortexBoxPlotProps, type BoxPlotInputItem } from "./components/VortexBoxPlot";
+export { VortexWaterfallChart, type VortexWaterfallChartProps } from "./components/VortexWaterfallChart";
+export { VortexRadarChart, type VortexRadarChartProps } from "./components/VortexRadarChart";
+export { VortexPieChart, type VortexPieChartProps } from "./components/VortexPieChart";
+export { VortexChoroplethMap, type VortexChoroplethMapProps } from "./components/VortexChoroplethMap";
 export { VortexChartControls, type VortexChartControlsProps } from "./components/VortexChartControls";
 
 // Engine & Interactive Tools
@@ -44,6 +61,24 @@ export {
   type BarReferenceLine,
 } from "./engine/bars";
 export { formatChange, formatVolume } from "./engine/interaction";
+
+// New Pure Canvas 2D Renderers & Quantitative Algorithms
+export { drawLineChart, type LineSeriesPoint, type DrawLineOptions } from "./engine/line-chart";
+export { drawOhlcBars, type DrawOhlcOptions } from "./engine/ohlc-bars";
+export { computeHeikinAshi } from "./engine/heikin-ashi";
+export { computeRenkoBricks, drawRenkoBricks, type RenkoBrick, type DrawRenkoOptions } from "./engine/renko";
+export { computePointAndFigure, drawPointAndFigure, type PnFColumn, type PnFType, type DrawPnFOptions } from "./engine/point-figure";
+export { drawFootprintChart, type FootprintBar, type FootprintLevel, type DrawFootprintOptions } from "./engine/footprint";
+export { computeVolumeProfile, drawVolumeProfile, type VolumeProfileResult, type VolumeProfileBin, type DrawVolumeProfileOptions } from "./engine/volume-profile";
+export { computeRangeBars, type TickData } from "./engine/range-bars";
+export { computeScatterBounds, drawScatterPlot, type ScatterPoint, type ScatterBounds, type DrawScatterOptions } from "./engine/scatter";
+export { drawHeatmap, type HeatmapData, type DrawHeatmapOptions } from "./engine/heatmap";
+export { drawAreaChart, type AreaDataPoint, type DrawAreaOptions } from "./engine/area";
+export { computeBoxPlotStats, drawBoxPlot, type BoxPlotItem, type DrawBoxPlotOptions } from "./engine/box-plot";
+export { drawWaterfallChart, type WaterfallBar, type DrawWaterfallOptions } from "./engine/waterfall";
+export { drawRadarChart, type RadarDimension, type RadarSeries, type DrawRadarOptions } from "./engine/radar";
+export { drawPieChart, type PieSlice, type DrawPieOptions } from "./engine/pie";
+export { drawChoropleth, type GeoRegion, type GeoPolygon, type DrawChoroplethOptions } from "./engine/choropleth";
 
 // Branding & Watermark
 export { drawVortexWatermark, VortexWatermarkOverlay } from "./engine/watermark";

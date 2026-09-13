@@ -308,7 +308,7 @@ function formatPrice(price) {
 }
 
 // src/engine/grid.ts
-function drawGridAndAxes(ctx, bounds, timeLabels, tickCount = 5) {
+function drawGridAndAxes(ctx, bounds, timeLabels = [], tickCount = 5) {
   const { chartWidth, chartHeight, plotWidth, padding, minPrice, maxPrice, priceRange } = bounds;
   ctx.save();
   const rightAxisX = chartWidth - padding.right;
@@ -2696,23 +2696,3004 @@ var VortexBarChart = ({
     }
   );
 };
+
+// src/components/VortexLineChart.tsx
+import { useEffect as useEffect9, useMemo as useMemo5, useState as useState7 } from "react";
+
+// src/engine/line-chart.ts
+function drawLineChart(ctx, data, bounds, options = {}) {
+  if (!data || data.length === 0) return;
+  const {
+    color = "#38bdf8",
+    lineWidth = 2,
+    showArea = true,
+    areaTopOpacity = 0.25,
+    showPoints = false,
+    pointRadius = 3,
+    glow = true
+  } = options;
+  const total = data.length;
+  const points = [];
+  for (let i = 0; i < total; i++) {
+    const pt = data[i];
+    const x = typeof pt.x === "number" ? pt.x : indexToX(i, total, bounds);
+    const y = typeof pt.y === "number" ? pt.y : priceToY(pt.price, bounds);
+    points.push({ x, y });
+  }
+  if (points.length < 2) {
+    if (points.length === 1) {
+      ctx.beginPath();
+      ctx.arc(points[0].x, points[0].y, pointRadius + 2, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+    return;
+  }
+  ctx.save();
+  if (showArea) {
+    const bottomY = bounds.chartHeight - bounds.padding.bottom;
+    const gradient = ctx.createLinearGradient(0, bounds.padding.top, 0, bottomY);
+    gradient.addColorStop(0, color.replace(")", `, ${areaTopOpacity})`).replace("rgb", "rgba"));
+    gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, bottomY);
+    ctx.lineTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.lineTo(points[points.length - 1].x, bottomY);
+    ctx.closePath();
+    ctx.fillStyle = gradient;
+    ctx.fill();
+  }
+  if (glow) {
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 8;
+  }
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  if (showPoints) {
+    for (const p of points) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, pointRadius, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = "#020616";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
+  const last = points[points.length - 1];
+  ctx.beginPath();
+  ctx.arc(last.x, last.y, 4, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.restore();
+}
+
+// src/components/VortexLineChart.tsx
+import { jsx as jsx7, jsxs as jsxs7 } from "react/jsx-runtime";
+var VortexLineChart = ({
+  data,
+  height = 300,
+  className = "",
+  color = "#38bdf8",
+  showArea = true,
+  showPoints = false,
+  showWatermark = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const [hoverIndex, setHoverIndex] = useState7(null);
+  const bounds = useMemo5(() => {
+    const prices = data.map((d) => d.price);
+    return computeBounds(prices, containerWidth, height);
+  }, [data, containerWidth, height]);
+  useEffect9(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawGridAndAxes(ctx, bounds);
+    drawLineChart(ctx, data, bounds, {
+      color: theme.colors?.spot ?? color,
+      showArea,
+      showPoints,
+      glow: true
+    });
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, bounds, data, color, showArea, showPoints, showWatermark, theme, canvasRef]);
+  const handlePointerMove = (e) => {
+    if (!data || data.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const step = bounds.plotWidth / Math.max(1, data.length);
+    const idx = Math.max(0, Math.min(data.length - 1, Math.floor((mouseX - bounds.padding.left) / step)));
+    setHoverIndex(idx);
+  };
+  const handlePointerLeave = () => {
+    setHoverIndex(null);
+  };
+  const hoveredItem = hoverIndex !== null ? data[hoverIndex] : null;
+  return /* @__PURE__ */ jsxs7(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ jsx7(
+          "canvas",
+          {
+            ref: canvasRef,
+            onPointerMove: handlePointerMove,
+            onPointerLeave: handlePointerLeave,
+            className: "block h-full w-full cursor-crosshair",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ jsx7("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
+        hoveredItem && /* @__PURE__ */ jsxs7("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-2 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
+          hoveredItem.label && /* @__PURE__ */ jsx7("span", { className: "font-semibold text-white", children: hoveredItem.label }),
+          /* @__PURE__ */ jsxs7("span", { children: [
+            "Price: ",
+            /* @__PURE__ */ jsxs7("strong", { className: "text-sky-400", children: [
+              "$",
+              formatPrice(hoveredItem.price)
+            ] })
+          ] })
+        ] })
+      ]
+    }
+  );
+};
+
+// src/components/VortexOhlcChart.tsx
+import { useEffect as useEffect10, useMemo as useMemo6, useState as useState8 } from "react";
+
+// src/engine/ohlc-bars.ts
+function drawOhlcBars(ctx, candles, bounds, options = {}) {
+  if (!candles || candles.length === 0) return;
+  const {
+    upColor = "#10b981",
+    downColor = "#f43f5e",
+    lineWidth = 1.5,
+    tickWidth
+  } = options;
+  const count = candles.length;
+  const slotWidth = bounds.plotWidth / Math.max(1, count);
+  const halfTick = tickWidth ? tickWidth / 2 : Math.max(2, Math.min(8, slotWidth * 0.35));
+  ctx.save();
+  ctx.lineWidth = lineWidth;
+  ctx.lineCap = "round";
+  for (let i = 0; i < count; i++) {
+    const c = candles[i];
+    const x = Math.round(indexToX(i, count, bounds));
+    const yHigh = Math.round(priceToY(c.high, bounds));
+    const yLow = Math.round(priceToY(c.low, bounds));
+    const yOpen = Math.round(priceToY(c.open, bounds));
+    const yClose = Math.round(priceToY(c.close, bounds));
+    const isBullish = c.close >= c.open;
+    const color = isBullish ? upColor : downColor;
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x, yHigh);
+    ctx.lineTo(x, yLow);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x, yOpen);
+    ctx.lineTo(x - halfTick, yOpen);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x, yClose);
+    ctx.lineTo(x + halfTick, yClose);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// src/components/VortexOhlcChart.tsx
+import { jsx as jsx8, jsxs as jsxs8 } from "react/jsx-runtime";
+var VortexOhlcChart = ({
+  data,
+  height = 340,
+  className = "",
+  upColor = "#10b981",
+  downColor = "#f43f5e",
+  lineWidth = 1.5,
+  tickWidth,
+  showWatermark = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const [hoverIndex, setHoverIndex] = useState8(null);
+  const bounds = useMemo6(() => {
+    const allPrices = [];
+    data.forEach((c) => {
+      allPrices.push(c.high, c.low, c.open, c.close);
+    });
+    return computeBounds(allPrices, containerWidth, height);
+  }, [data, containerWidth, height]);
+  useEffect10(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawGridAndAxes(ctx, bounds);
+    drawOhlcBars(ctx, data, bounds, {
+      upColor: theme.colors?.bullish ?? upColor,
+      downColor: theme.colors?.bearish ?? downColor,
+      lineWidth,
+      tickWidth
+    });
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, bounds, data, upColor, downColor, lineWidth, tickWidth, showWatermark, theme, canvasRef]);
+  const handlePointerMove = (e) => {
+    if (!data || data.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const step = bounds.plotWidth / Math.max(1, data.length);
+    const idx = Math.max(0, Math.min(data.length - 1, Math.floor((mouseX - bounds.padding.left) / step)));
+    setHoverIndex(idx);
+  };
+  const hovered = hoverIndex !== null ? data[hoverIndex] : null;
+  return /* @__PURE__ */ jsxs8(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ jsx8(
+          "canvas",
+          {
+            ref: canvasRef,
+            onPointerMove: handlePointerMove,
+            onPointerLeave: () => setHoverIndex(null),
+            className: "block h-full w-full cursor-crosshair",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ jsx8("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
+        hovered && /* @__PURE__ */ jsxs8("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-3 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
+          /* @__PURE__ */ jsxs8("span", { children: [
+            "O: ",
+            /* @__PURE__ */ jsxs8("strong", { className: "text-white", children: [
+              "$",
+              formatPrice(hovered.open)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs8("span", { children: [
+            "H: ",
+            /* @__PURE__ */ jsxs8("strong", { className: "text-emerald-400", children: [
+              "$",
+              formatPrice(hovered.high)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs8("span", { children: [
+            "L: ",
+            /* @__PURE__ */ jsxs8("strong", { className: "text-rose-400", children: [
+              "$",
+              formatPrice(hovered.low)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs8("span", { children: [
+            "C: ",
+            /* @__PURE__ */ jsxs8("strong", { className: hovered.close >= hovered.open ? "text-emerald-400" : "text-rose-400", children: [
+              "$",
+              formatPrice(hovered.close)
+            ] })
+          ] })
+        ] })
+      ]
+    }
+  );
+};
+
+// src/components/VortexHeikinAshiChart.tsx
+import { useEffect as useEffect11, useMemo as useMemo7, useState as useState9 } from "react";
+
+// src/engine/heikin-ashi.ts
+function computeHeikinAshi(candles) {
+  if (!candles || candles.length === 0) return [];
+  const result = new Array(candles.length);
+  for (let i = 0; i < candles.length; i++) {
+    const curr = candles[i];
+    const haClose = (curr.open + curr.high + curr.low + curr.close) / 4;
+    let haOpen;
+    if (i === 0) {
+      haOpen = (curr.open + curr.close) / 2;
+    } else {
+      const prev = result[i - 1];
+      haOpen = (prev.open + prev.close) / 2;
+    }
+    const haHigh = Math.max(curr.high, haOpen, haClose);
+    const haLow = Math.min(curr.low, haOpen, haClose);
+    result[i] = {
+      t: curr.t,
+      open: haOpen,
+      high: haHigh,
+      low: haLow,
+      close: haClose,
+      volume: curr.volume
+    };
+  }
+  return result;
+}
+
+// src/components/VortexHeikinAshiChart.tsx
+import { jsx as jsx9, jsxs as jsxs9 } from "react/jsx-runtime";
+var VortexHeikinAshiChart = ({
+  data,
+  height = 340,
+  className = "",
+  upColor = "#10b981",
+  downColor = "#f43f5e",
+  showWatermark = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const [hoverIndex, setHoverIndex] = useState9(null);
+  const haCandles = useMemo7(() => computeHeikinAshi(data), [data]);
+  const bounds = useMemo7(() => {
+    const allPrices = [];
+    haCandles.forEach((c) => {
+      allPrices.push(c.high, c.low, c.open, c.close);
+    });
+    return computeBounds(allPrices, containerWidth, height);
+  }, [haCandles, containerWidth, height]);
+  useEffect11(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawGridAndAxes(ctx, bounds);
+    drawCandlesticks(ctx, haCandles, bounds, {
+      upColor: theme.colors?.bullish ?? upColor,
+      downColor: theme.colors?.bearish ?? downColor
+    });
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, bounds, haCandles, upColor, downColor, showWatermark, theme, canvasRef]);
+  const handlePointerMove = (e) => {
+    if (!haCandles || haCandles.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const step = bounds.plotWidth / Math.max(1, haCandles.length);
+    const idx = Math.max(0, Math.min(haCandles.length - 1, Math.floor((mouseX - bounds.padding.left) / step)));
+    setHoverIndex(idx);
+  };
+  const hovered = hoverIndex !== null ? haCandles[hoverIndex] : null;
+  return /* @__PURE__ */ jsxs9(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ jsx9(
+          "canvas",
+          {
+            ref: canvasRef,
+            onPointerMove: handlePointerMove,
+            onPointerLeave: () => setHoverIndex(null),
+            className: "block h-full w-full cursor-crosshair",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ jsx9("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
+        hovered && /* @__PURE__ */ jsxs9("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-3 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
+          /* @__PURE__ */ jsx9("span", { className: "text-zinc-400 font-semibold", children: "HA:" }),
+          /* @__PURE__ */ jsxs9("span", { children: [
+            "O: ",
+            /* @__PURE__ */ jsxs9("strong", { className: "text-white", children: [
+              "$",
+              formatPrice(hovered.open)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs9("span", { children: [
+            "H: ",
+            /* @__PURE__ */ jsxs9("strong", { className: "text-emerald-400", children: [
+              "$",
+              formatPrice(hovered.high)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs9("span", { children: [
+            "L: ",
+            /* @__PURE__ */ jsxs9("strong", { className: "text-rose-400", children: [
+              "$",
+              formatPrice(hovered.low)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs9("span", { children: [
+            "C: ",
+            /* @__PURE__ */ jsxs9("strong", { className: hovered.close >= hovered.open ? "text-emerald-400" : "text-rose-400", children: [
+              "$",
+              formatPrice(hovered.close)
+            ] })
+          ] })
+        ] })
+      ]
+    }
+  );
+};
+
+// src/components/VortexRenkoChart.tsx
+import { useEffect as useEffect12, useMemo as useMemo8, useState as useState10 } from "react";
+
+// src/engine/renko.ts
+function computeRenkoBricks(candles, brickSize = 1) {
+  if (!candles || candles.length === 0 || brickSize <= 0) return [];
+  const bricks = [];
+  let currentPrice = candles[0].close;
+  let lastBrickTop = currentPrice;
+  let lastBrickBottom = currentPrice - brickSize;
+  let lastDirectionUp = true;
+  for (let i = 1; i < candles.length; i++) {
+    const price = candles[i].close;
+    const time = candles[i].t;
+    while (price >= lastBrickTop + brickSize) {
+      const open = lastBrickTop;
+      const close = lastBrickTop + brickSize;
+      bricks.push({
+        open,
+        close,
+        high: close,
+        low: open,
+        isUp: true,
+        t: time
+      });
+      lastBrickBottom = open;
+      lastBrickTop = close;
+      lastDirectionUp = true;
+    }
+    const reversalThreshold = lastDirectionUp ? lastBrickBottom - brickSize : lastBrickBottom - brickSize;
+    while (price <= lastBrickBottom - brickSize) {
+      const open = lastBrickBottom;
+      const close = lastBrickBottom - brickSize;
+      bricks.push({
+        open,
+        close,
+        high: open,
+        low: close,
+        isUp: false,
+        t: time
+      });
+      lastBrickTop = open;
+      lastBrickBottom = close;
+      lastDirectionUp = false;
+    }
+  }
+  return bricks;
+}
+function drawRenkoBricks(ctx, bricks, bounds, options = {}) {
+  if (!bricks || bricks.length === 0) return;
+  const {
+    upColor = "#10b981",
+    downColor = "#f43f5e",
+    borderColor = "rgba(255, 255, 255, 0.15)"
+  } = options;
+  const count = bricks.length;
+  const slotWidth = bounds.plotWidth / Math.max(1, count);
+  const brickWidth = Math.max(2, Math.min(30, slotWidth * 0.85));
+  ctx.save();
+  for (let i = 0; i < count; i++) {
+    const b = bricks[i];
+    const x = Math.round(indexToX(i, count, bounds) - brickWidth / 2);
+    const yTop = Math.round(priceToY(Math.max(b.open, b.close), bounds));
+    const yBottom = Math.round(priceToY(Math.min(b.open, b.close), bounds));
+    const height = Math.max(2, yBottom - yTop);
+    ctx.fillStyle = b.isUp ? upColor : downColor;
+    ctx.fillRect(x, yTop, brickWidth, height);
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, yTop, brickWidth, height);
+  }
+  ctx.restore();
+}
+
+// src/components/VortexRenkoChart.tsx
+import { jsx as jsx10, jsxs as jsxs10 } from "react/jsx-runtime";
+var VortexRenkoChart = ({
+  data,
+  brickSize = 1,
+  height = 340,
+  className = "",
+  upColor = "#10b981",
+  downColor = "#f43f5e",
+  showWatermark = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const [hoverIndex, setHoverIndex] = useState10(null);
+  const bricks = useMemo8(() => {
+    return computeRenkoBricks(data, brickSize);
+  }, [data, brickSize]);
+  const bounds = useMemo8(() => {
+    const allPrices = [];
+    bricks.forEach((b) => {
+      allPrices.push(b.high, b.low, b.open, b.close);
+    });
+    return computeBounds(allPrices, containerWidth, height);
+  }, [bricks, containerWidth, height]);
+  useEffect12(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawGridAndAxes(ctx, bounds);
+    drawRenkoBricks(ctx, bricks, bounds, {
+      upColor: theme.colors?.bullish ?? upColor,
+      downColor: theme.colors?.bearish ?? downColor
+    });
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, bounds, bricks, upColor, downColor, showWatermark, theme, canvasRef]);
+  const handlePointerMove = (e) => {
+    if (!bricks || bricks.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const step = bounds.plotWidth / Math.max(1, bricks.length);
+    const idx = Math.max(0, Math.min(bricks.length - 1, Math.floor((mouseX - bounds.padding.left) / step)));
+    setHoverIndex(idx);
+  };
+  const hovered = hoverIndex !== null ? bricks[hoverIndex] : null;
+  return /* @__PURE__ */ jsxs10(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ jsx10(
+          "canvas",
+          {
+            ref: canvasRef,
+            onPointerMove: handlePointerMove,
+            onPointerLeave: () => setHoverIndex(null),
+            className: "block h-full w-full cursor-crosshair",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ jsx10("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
+        hovered && /* @__PURE__ */ jsxs10("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-3 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
+          /* @__PURE__ */ jsxs10("span", { className: "text-zinc-400 font-semibold", children: [
+            "Brick #",
+            hoverIndex + 1,
+            ":"
+          ] }),
+          /* @__PURE__ */ jsxs10("span", { children: [
+            "Type: ",
+            /* @__PURE__ */ jsx10("strong", { className: hovered.isUp ? "text-emerald-400" : "text-rose-400", children: hovered.isUp ? "UP" : "DOWN" })
+          ] }),
+          /* @__PURE__ */ jsxs10("span", { children: [
+            "Open: ",
+            /* @__PURE__ */ jsxs10("strong", { className: "text-white", children: [
+              "$",
+              formatPrice(hovered.open)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs10("span", { children: [
+            "Close: ",
+            /* @__PURE__ */ jsxs10("strong", { className: "text-white", children: [
+              "$",
+              formatPrice(hovered.close)
+            ] })
+          ] })
+        ] })
+      ]
+    }
+  );
+};
+
+// src/components/VortexPointFigureChart.tsx
+import { useEffect as useEffect13, useMemo as useMemo9, useState as useState11 } from "react";
+
+// src/engine/point-figure.ts
+function computePointAndFigure(candles, boxSize = 1, reversal = 3) {
+  if (!candles || candles.length === 0 || boxSize <= 0) return [];
+  const columns = [];
+  const startPrice = Math.floor(candles[0].close / boxSize) * boxSize;
+  let currentType = "X";
+  let currentBoxes = [startPrice];
+  let lastTime = candles[0].t;
+  for (let i = 1; i < candles.length; i++) {
+    const high = candles[i].high;
+    const low = candles[i].low;
+    const time = candles[i].t;
+    if (currentType === "X") {
+      const topBox = currentBoxes[currentBoxes.length - 1];
+      const nextBox = topBox + boxSize;
+      if (high >= nextBox) {
+        let p = nextBox;
+        while (high >= p) {
+          currentBoxes.push(p);
+          p += boxSize;
+        }
+      } else if (low <= topBox - reversal * boxSize) {
+        columns.push({ type: "X", boxes: [...currentBoxes], t: lastTime });
+        currentType = "O";
+        currentBoxes = [];
+        let p = topBox - boxSize;
+        while (p >= low) {
+          currentBoxes.push(p);
+          p -= boxSize;
+        }
+        lastTime = time;
+      }
+    } else {
+      const bottomBox = currentBoxes[currentBoxes.length - 1];
+      const nextBox = bottomBox - boxSize;
+      if (low <= nextBox) {
+        let p = nextBox;
+        while (low <= p) {
+          currentBoxes.push(p);
+          p -= boxSize;
+        }
+      } else if (high >= bottomBox + reversal * boxSize) {
+        columns.push({ type: "O", boxes: [...currentBoxes], t: lastTime });
+        currentType = "X";
+        currentBoxes = [];
+        let p = bottomBox + boxSize;
+        while (p <= high) {
+          currentBoxes.push(p);
+          p += boxSize;
+        }
+        lastTime = time;
+      }
+    }
+  }
+  if (currentBoxes.length > 0) {
+    columns.push({ type: currentType, boxes: currentBoxes, t: lastTime });
+  }
+  return columns;
+}
+function drawPointAndFigure(ctx, columns, bounds, boxSize, options = {}) {
+  if (!columns || columns.length === 0) return;
+  const {
+    xColor = "#10b981",
+    oColor = "#f43f5e"
+  } = options;
+  const count = columns.length;
+  const colWidth = bounds.plotWidth / Math.max(1, count);
+  const glyphSize = Math.max(3, Math.min(18, colWidth * 0.75));
+  ctx.save();
+  ctx.lineWidth = 1.8;
+  for (let c = 0; c < count; c++) {
+    const col = columns[c];
+    const x = Math.round(indexToX(c, count, bounds));
+    if (col.type === "X") {
+      ctx.strokeStyle = xColor;
+      for (const price of col.boxes) {
+        const y = Math.round(priceToY(price, bounds));
+        const half = glyphSize / 2;
+        ctx.beginPath();
+        ctx.moveTo(x - half, y - half);
+        ctx.lineTo(x + half, y + half);
+        ctx.moveTo(x + half, y - half);
+        ctx.lineTo(x - half, y + half);
+        ctx.stroke();
+      }
+    } else {
+      ctx.strokeStyle = oColor;
+      for (const price of col.boxes) {
+        const y = Math.round(priceToY(price, bounds));
+        const radius = glyphSize / 2;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// src/components/VortexPointFigureChart.tsx
+import { jsx as jsx11, jsxs as jsxs11 } from "react/jsx-runtime";
+var VortexPointFigureChart = ({
+  data,
+  boxSize = 1,
+  reversal = 3,
+  height = 340,
+  className = "",
+  xColor = "#10b981",
+  oColor = "#f43f5e",
+  showWatermark = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const [hoverIndex, setHoverIndex] = useState11(null);
+  const columns = useMemo9(() => {
+    return computePointAndFigure(data, boxSize, reversal);
+  }, [data, boxSize, reversal]);
+  const bounds = useMemo9(() => {
+    const allBoxes = [];
+    columns.forEach((col) => {
+      col.boxes.forEach((b) => allBoxes.push(b));
+    });
+    return computeBounds(allBoxes, containerWidth, height);
+  }, [columns, containerWidth, height]);
+  useEffect13(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawGridAndAxes(ctx, bounds);
+    drawPointAndFigure(ctx, columns, bounds, boxSize, {
+      xColor: theme.colors?.bullish ?? xColor,
+      oColor: theme.colors?.bearish ?? oColor
+    });
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, bounds, columns, boxSize, xColor, oColor, showWatermark, theme, canvasRef]);
+  const handlePointerMove = (e) => {
+    if (!columns || columns.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const step = bounds.plotWidth / Math.max(1, columns.length);
+    const idx = Math.max(0, Math.min(columns.length - 1, Math.floor((mouseX - bounds.padding.left) / step)));
+    setHoverIndex(idx);
+  };
+  const hovered = hoverIndex !== null ? columns[hoverIndex] : null;
+  return /* @__PURE__ */ jsxs11(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ jsx11(
+          "canvas",
+          {
+            ref: canvasRef,
+            onPointerMove: handlePointerMove,
+            onPointerLeave: () => setHoverIndex(null),
+            className: "block h-full w-full cursor-crosshair",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ jsx11("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
+        hovered && /* @__PURE__ */ jsxs11("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-3 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
+          /* @__PURE__ */ jsxs11("span", { className: "text-zinc-400 font-semibold", children: [
+            "Col #",
+            hoverIndex + 1,
+            ":"
+          ] }),
+          /* @__PURE__ */ jsxs11("span", { children: [
+            "Type: ",
+            /* @__PURE__ */ jsx11("strong", { className: hovered.type === "X" ? "text-emerald-400" : "text-rose-400", children: hovered.type })
+          ] }),
+          /* @__PURE__ */ jsxs11("span", { children: [
+            "Boxes: ",
+            /* @__PURE__ */ jsx11("strong", { className: "text-white", children: hovered.boxes.length })
+          ] }),
+          hovered.boxes.length > 0 && /* @__PURE__ */ jsxs11("span", { children: [
+            "Range: ",
+            /* @__PURE__ */ jsxs11("strong", { className: "text-white", children: [
+              "$",
+              formatPrice(Math.min(...hovered.boxes)),
+              " - $",
+              formatPrice(Math.max(...hovered.boxes))
+            ] })
+          ] })
+        ] })
+      ]
+    }
+  );
+};
+
+// src/components/VortexFootprintChart.tsx
+import { useEffect as useEffect14, useMemo as useMemo10, useState as useState12 } from "react";
+
+// src/engine/footprint.ts
+function drawFootprintChart(ctx, bars, bounds, options = {}) {
+  if (!bars || bars.length === 0) return;
+  const {
+    upColor = "#10b981",
+    downColor = "#f43f5e",
+    bidColor = "rgba(244, 63, 94, 0.4)",
+    askColor = "rgba(16, 185, 129, 0.4)",
+    showText = true
+  } = options;
+  const count = bars.length;
+  const slotWidth = bounds.plotWidth / Math.max(1, count);
+  const barWidth = Math.max(30, Math.min(100, slotWidth * 0.92));
+  ctx.save();
+  ctx.font = "9px Inter, monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (let i = 0; i < count; i++) {
+    const bar = bars[i];
+    const centerX = Math.round(indexToX(i, count, bounds));
+    const leftX = Math.round(centerX - barWidth / 2);
+    const midX = centerX;
+    const isUp = bar.close >= bar.open;
+    const yHigh = Math.round(priceToY(bar.high, bounds));
+    const yLow = Math.round(priceToY(bar.low, bounds));
+    ctx.strokeStyle = isUp ? upColor : downColor;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(centerX, yHigh);
+    ctx.lineTo(centerX, yLow);
+    ctx.stroke();
+    if (bar.levels && bar.levels.length > 0) {
+      const rowHeight = Math.max(10, (yLow - yHigh) / bar.levels.length);
+      for (const lvl of bar.levels) {
+        const y = Math.round(priceToY(lvl.price, bounds));
+        const delta = lvl.delta ?? lvl.askVolume - lvl.bidVolume;
+        ctx.fillStyle = bidColor;
+        ctx.fillRect(leftX, y - rowHeight / 2, barWidth / 2 - 1, rowHeight - 1);
+        ctx.fillStyle = askColor;
+        ctx.fillRect(midX + 1, y - rowHeight / 2, barWidth / 2 - 1, rowHeight - 1);
+        if (Math.abs(delta) > 100) {
+          ctx.strokeStyle = delta > 0 ? upColor : downColor;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(leftX, y - rowHeight / 2, barWidth, rowHeight - 1);
+        }
+        if (showText && barWidth >= 50 && rowHeight >= 10) {
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(String(lvl.bidVolume), leftX + barWidth / 4, y);
+          ctx.fillText(String(lvl.askVolume), midX + barWidth / 4, y);
+        }
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// src/components/VortexFootprintChart.tsx
+import { jsx as jsx12, jsxs as jsxs12 } from "react/jsx-runtime";
+var VortexFootprintChart = ({
+  data,
+  height = 360,
+  className = "",
+  upColor = "#10b981",
+  downColor = "#f43f5e",
+  bidColor = "rgba(244, 63, 94, 0.4)",
+  askColor = "rgba(16, 185, 129, 0.4)",
+  showText = true,
+  showWatermark = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const [hoverIndex, setHoverIndex] = useState12(null);
+  const bounds = useMemo10(() => {
+    const allPrices = [];
+    data.forEach((b) => {
+      allPrices.push(b.high, b.low, b.open, b.close);
+      b.levels.forEach((lvl) => allPrices.push(lvl.price));
+    });
+    return computeBounds(allPrices, containerWidth, height);
+  }, [data, containerWidth, height]);
+  useEffect14(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawGridAndAxes(ctx, bounds);
+    drawFootprintChart(ctx, data, bounds, {
+      upColor: theme.colors?.bullish ?? upColor,
+      downColor: theme.colors?.bearish ?? downColor,
+      bidColor,
+      askColor,
+      showText
+    });
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, bounds, data, upColor, downColor, bidColor, askColor, showText, showWatermark, theme, canvasRef]);
+  const handlePointerMove = (e) => {
+    if (!data || data.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const step = bounds.plotWidth / Math.max(1, data.length);
+    const idx = Math.max(0, Math.min(data.length - 1, Math.floor((mouseX - bounds.padding.left) / step)));
+    setHoverIndex(idx);
+  };
+  const hovered = hoverIndex !== null ? data[hoverIndex] : null;
+  return /* @__PURE__ */ jsxs12(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ jsx12(
+          "canvas",
+          {
+            ref: canvasRef,
+            onPointerMove: handlePointerMove,
+            onPointerLeave: () => setHoverIndex(null),
+            className: "block h-full w-full cursor-crosshair",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ jsx12("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
+        hovered && /* @__PURE__ */ jsxs12("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-3 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
+          /* @__PURE__ */ jsxs12("span", { className: "text-zinc-400 font-semibold", children: [
+            "Bar #",
+            hoverIndex + 1,
+            ":"
+          ] }),
+          /* @__PURE__ */ jsxs12("span", { children: [
+            "Vol: ",
+            /* @__PURE__ */ jsx12("strong", { className: "text-white", children: hovered.totalVolume.toLocaleString() })
+          ] }),
+          /* @__PURE__ */ jsxs12("span", { children: [
+            "O: ",
+            /* @__PURE__ */ jsxs12("strong", { className: "text-white", children: [
+              "$",
+              formatPrice(hovered.open)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs12("span", { children: [
+            "C: ",
+            /* @__PURE__ */ jsxs12("strong", { className: hovered.close >= hovered.open ? "text-emerald-400" : "text-rose-400", children: [
+              "$",
+              formatPrice(hovered.close)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs12("span", { children: [
+            "Levels: ",
+            /* @__PURE__ */ jsx12("strong", { className: "text-sky-400", children: hovered.levels.length })
+          ] })
+        ] })
+      ]
+    }
+  );
+};
+
+// src/components/VortexVolumeProfileChart.tsx
+import { useEffect as useEffect15, useMemo as useMemo11, useState as useState13 } from "react";
+
+// src/engine/volume-profile.ts
+function computeVolumeProfile(candles, rows = 24, valueAreaRatio = 0.7) {
+  if (!candles || candles.length === 0 || rows <= 0) return null;
+  let minPrice = Infinity;
+  let maxPrice = -Infinity;
+  for (const c of candles) {
+    if (c.low < minPrice) minPrice = c.low;
+    if (c.high > maxPrice) maxPrice = c.high;
+  }
+  if (!isFinite(minPrice) || !isFinite(maxPrice) || minPrice >= maxPrice) {
+    return null;
+  }
+  const step = (maxPrice - minPrice) / rows;
+  const rawBins = [];
+  for (let r = 0; r < rows; r++) {
+    const bottom = minPrice + r * step;
+    const top = bottom + step;
+    rawBins.push({
+      volume: 0,
+      price: (bottom + top) / 2,
+      bottom,
+      top
+    });
+  }
+  let totalVolume = 0;
+  for (const c of candles) {
+    const vol = c.volume ?? 1;
+    totalVolume += vol;
+    const cLow = Math.max(minPrice, c.low);
+    const cHigh = Math.min(maxPrice, c.high);
+    const cSpan = Math.max(1e-4, cHigh - cLow);
+    for (let r = 0; r < rows; r++) {
+      const b = rawBins[r];
+      const overlapStart = Math.max(cLow, b.bottom);
+      const overlapEnd = Math.min(cHigh, b.top);
+      if (overlapEnd > overlapStart) {
+        const fraction = (overlapEnd - overlapStart) / cSpan;
+        b.volume += vol * fraction;
+      }
+    }
+  }
+  let maxBinVolume = 0;
+  let pocIdx = 0;
+  for (let r = 0; r < rows; r++) {
+    if (rawBins[r].volume > maxBinVolume) {
+      maxBinVolume = rawBins[r].volume;
+      pocIdx = r;
+    }
+  }
+  const pocPrice = rawBins[pocIdx].price;
+  const targetVaVolume = totalVolume * valueAreaRatio;
+  let currentVaVolume = rawBins[pocIdx].volume;
+  const inVa = /* @__PURE__ */ new Set([pocIdx]);
+  let upPtr = pocIdx + 1;
+  let downPtr = pocIdx - 1;
+  while (currentVaVolume < targetVaVolume && (upPtr < rows || downPtr >= 0)) {
+    const upVol = upPtr < rows ? rawBins[upPtr].volume : -1;
+    const downVol = downPtr >= 0 ? rawBins[downPtr].volume : -1;
+    if (upVol >= downVol && upPtr < rows) {
+      currentVaVolume += upVol;
+      inVa.add(upPtr);
+      upPtr++;
+    } else if (downPtr >= 0) {
+      currentVaVolume += downVol;
+      inVa.add(downPtr);
+      downPtr--;
+    } else if (upPtr < rows) {
+      currentVaVolume += upVol;
+      inVa.add(upPtr);
+      upPtr++;
+    }
+  }
+  const vaIndices = Array.from(inVa).sort((a, b) => a - b);
+  const valPrice = rawBins[vaIndices[0]].bottom;
+  const vahPrice = rawBins[vaIndices[vaIndices.length - 1]].top;
+  const bins = rawBins.map((b, idx) => ({
+    price: b.price,
+    priceTop: b.top,
+    priceBottom: b.bottom,
+    volume: b.volume,
+    isValueArea: inVa.has(idx),
+    isPoc: idx === pocIdx
+  }));
+  return {
+    bins,
+    pocPrice,
+    vahPrice,
+    valPrice,
+    totalVolume,
+    maxBinVolume
+  };
+}
+function drawVolumeProfile(ctx, profile, bounds, options = {}) {
+  if (!profile || profile.bins.length === 0 || profile.maxBinVolume <= 0) return;
+  const {
+    alignment = "right",
+    widthRatio = 0.28,
+    pocColor = "#eab308",
+    valueAreaColor = "rgba(56, 189, 248, 0.4)",
+    otherAreaColor = "rgba(100, 116, 139, 0.2)",
+    showLines = true
+  } = options;
+  const maxProfileWidth = bounds.plotWidth * widthRatio;
+  const startX = alignment === "right" ? bounds.padding.left + bounds.plotWidth : bounds.padding.left;
+  ctx.save();
+  for (const bin of profile.bins) {
+    const yTop = Math.round(priceToY(bin.priceTop, bounds));
+    const yBottom = Math.round(priceToY(bin.priceBottom, bounds));
+    const barHeight = Math.max(1, yBottom - yTop);
+    const barWidth = bin.volume / profile.maxBinVolume * maxProfileWidth;
+    const x = alignment === "right" ? startX - barWidth : startX;
+    ctx.fillStyle = bin.isPoc ? pocColor : bin.isValueArea ? valueAreaColor : otherAreaColor;
+    ctx.fillRect(x, yTop, barWidth, barHeight);
+  }
+  if (showLines) {
+    const yPoc = Math.round(priceToY(profile.pocPrice, bounds));
+    ctx.strokeStyle = pocColor;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 2]);
+    ctx.beginPath();
+    ctx.moveTo(bounds.padding.left, yPoc);
+    ctx.lineTo(bounds.padding.left + bounds.plotWidth, yPoc);
+    ctx.stroke();
+    const yVah = Math.round(priceToY(profile.vahPrice, bounds));
+    ctx.strokeStyle = "#38bdf8";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 2]);
+    ctx.beginPath();
+    ctx.moveTo(bounds.padding.left, yVah);
+    ctx.lineTo(bounds.padding.left + bounds.plotWidth, yVah);
+    ctx.stroke();
+    const yVal = Math.round(priceToY(profile.valPrice, bounds));
+    ctx.beginPath();
+    ctx.moveTo(bounds.padding.left, yVal);
+    ctx.lineTo(bounds.padding.left + bounds.plotWidth, yVal);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
+// src/components/VortexVolumeProfileChart.tsx
+import { jsx as jsx13, jsxs as jsxs13 } from "react/jsx-runtime";
+var VortexVolumeProfileChart = ({
+  data,
+  rows = 28,
+  valueAreaRatio = 0.7,
+  alignment = "right",
+  showCandles = true,
+  pocColor = "#eab308",
+  valueAreaColor = "rgba(56, 189, 248, 0.4)",
+  otherAreaColor = "rgba(100, 116, 139, 0.2)",
+  height = 360,
+  className = "",
+  showWatermark = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const [hoverIndex, setHoverIndex] = useState13(null);
+  const profile = useMemo11(() => {
+    return computeVolumeProfile(data, rows, valueAreaRatio);
+  }, [data, rows, valueAreaRatio]);
+  const bounds = useMemo11(() => {
+    const allPrices = [];
+    data.forEach((c) => {
+      allPrices.push(c.high, c.low, c.open, c.close);
+    });
+    return computeBounds(allPrices, containerWidth, height);
+  }, [data, containerWidth, height]);
+  useEffect15(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawGridAndAxes(ctx, bounds);
+    if (showCandles && data.length > 0) {
+      drawCandlesticks(ctx, data, bounds, {
+        upColor: theme.colors?.bullish ?? "#10b981",
+        downColor: theme.colors?.bearish ?? "#f43f5e"
+      });
+    }
+    if (profile) {
+      drawVolumeProfile(ctx, profile, bounds, {
+        alignment,
+        pocColor,
+        valueAreaColor,
+        otherAreaColor,
+        showLines: true
+      });
+    }
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, bounds, data, profile, alignment, showCandles, pocColor, valueAreaColor, otherAreaColor, showWatermark, theme, canvasRef]);
+  const handlePointerMove = (e) => {
+    if (!data || data.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const step = bounds.plotWidth / Math.max(1, data.length);
+    const idx = Math.max(0, Math.min(data.length - 1, Math.floor((mouseX - bounds.padding.left) / step)));
+    setHoverIndex(idx);
+  };
+  const hovered = hoverIndex !== null ? data[hoverIndex] : null;
+  return /* @__PURE__ */ jsxs13(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ jsx13(
+          "canvas",
+          {
+            ref: canvasRef,
+            onPointerMove: handlePointerMove,
+            onPointerLeave: () => setHoverIndex(null),
+            className: "block h-full w-full cursor-crosshair",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ jsx13("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
+        profile && /* @__PURE__ */ jsxs13("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-3 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
+          /* @__PURE__ */ jsxs13("span", { children: [
+            "POC: ",
+            /* @__PURE__ */ jsxs13("strong", { className: "text-amber-400", children: [
+              "$",
+              formatPrice(profile.pocPrice)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs13("span", { children: [
+            "VAH: ",
+            /* @__PURE__ */ jsxs13("strong", { className: "text-sky-400", children: [
+              "$",
+              formatPrice(profile.vahPrice)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs13("span", { children: [
+            "VAL: ",
+            /* @__PURE__ */ jsxs13("strong", { className: "text-sky-400", children: [
+              "$",
+              formatPrice(profile.valPrice)
+            ] })
+          ] }),
+          hovered && /* @__PURE__ */ jsxs13("span", { children: [
+            "Close: ",
+            /* @__PURE__ */ jsxs13("strong", { className: "text-white", children: [
+              "$",
+              formatPrice(hovered.close)
+            ] })
+          ] })
+        ] })
+      ]
+    }
+  );
+};
+
+// src/components/VortexRangeBarChart.tsx
+import { useEffect as useEffect16, useMemo as useMemo12, useState as useState14 } from "react";
+
+// src/engine/range-bars.ts
+function computeRangeBars(ticks, rangeSize = 0.5) {
+  if (!ticks || ticks.length === 0 || rangeSize <= 0) return [];
+  const rawPrices = [];
+  for (const item of ticks) {
+    if ("price" in item && typeof item.price === "number") {
+      rawPrices.push({
+        price: item.price,
+        volume: item.volume ?? 1,
+        t: item.t ?? Date.now()
+      });
+    } else if ("close" in item) {
+      const c = item;
+      rawPrices.push({ price: c.open, volume: (c.volume ?? 4) * 0.25, t: c.t });
+      if (c.close >= c.open) {
+        rawPrices.push({ price: c.low, volume: (c.volume ?? 4) * 0.25, t: c.t });
+        rawPrices.push({ price: c.high, volume: (c.volume ?? 4) * 0.25, t: c.t });
+      } else {
+        rawPrices.push({ price: c.high, volume: (c.volume ?? 4) * 0.25, t: c.t });
+        rawPrices.push({ price: c.low, volume: (c.volume ?? 4) * 0.25, t: c.t });
+      }
+      rawPrices.push({ price: c.close, volume: (c.volume ?? 4) * 0.25, t: c.t });
+    }
+  }
+  if (rawPrices.length === 0) return [];
+  const bars = [];
+  let currentOpen = rawPrices[0].price;
+  let currentHigh = currentOpen;
+  let currentLow = currentOpen;
+  let currentVolume = 0;
+  let currentT = rawPrices[0].t;
+  for (const p of rawPrices) {
+    currentVolume += p.volume;
+    currentT = p.t;
+    if (p.price > currentHigh) currentHigh = p.price;
+    if (p.price < currentLow) currentLow = p.price;
+    if (currentHigh - currentLow >= rangeSize) {
+      const close = p.price;
+      bars.push({
+        t: currentT,
+        open: currentOpen,
+        high: currentHigh,
+        low: currentLow,
+        close,
+        volume: currentVolume
+      });
+      currentOpen = close;
+      currentHigh = close;
+      currentLow = close;
+      currentVolume = 0;
+    }
+  }
+  if (currentVolume > 0 || bars.length === 0) {
+    bars.push({
+      t: currentT,
+      open: currentOpen,
+      high: currentHigh,
+      low: currentLow,
+      close: rawPrices[rawPrices.length - 1].price,
+      volume: currentVolume
+    });
+  }
+  return bars;
+}
+
+// src/components/VortexRangeBarChart.tsx
+import { jsx as jsx14, jsxs as jsxs14 } from "react/jsx-runtime";
+var VortexRangeBarChart = ({
+  data,
+  rangeSize = 1,
+  height = 340,
+  className = "",
+  upColor = "#10b981",
+  downColor = "#f43f5e",
+  showWatermark = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const [hoverIndex, setHoverIndex] = useState14(null);
+  const rangeCandles = useMemo12(() => {
+    return computeRangeBars(data, rangeSize);
+  }, [data, rangeSize]);
+  const bounds = useMemo12(() => {
+    const allPrices = [];
+    rangeCandles.forEach((c) => {
+      allPrices.push(c.high, c.low, c.open, c.close);
+    });
+    return computeBounds(allPrices, containerWidth, height);
+  }, [rangeCandles, containerWidth, height]);
+  useEffect16(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawGridAndAxes(ctx, bounds);
+    drawCandlesticks(ctx, rangeCandles, bounds, {
+      upColor: theme.colors?.bullish ?? upColor,
+      downColor: theme.colors?.bearish ?? downColor
+    });
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, bounds, rangeCandles, upColor, downColor, showWatermark, theme, canvasRef]);
+  const handlePointerMove = (e) => {
+    if (!rangeCandles || rangeCandles.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const step = bounds.plotWidth / Math.max(1, rangeCandles.length);
+    const idx = Math.max(0, Math.min(rangeCandles.length - 1, Math.floor((mouseX - bounds.padding.left) / step)));
+    setHoverIndex(idx);
+  };
+  const hovered = hoverIndex !== null ? rangeCandles[hoverIndex] : null;
+  return /* @__PURE__ */ jsxs14(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ jsx14(
+          "canvas",
+          {
+            ref: canvasRef,
+            onPointerMove: handlePointerMove,
+            onPointerLeave: () => setHoverIndex(null),
+            className: "block h-full w-full cursor-crosshair",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ jsx14("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
+        hovered && /* @__PURE__ */ jsxs14("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-3 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
+          /* @__PURE__ */ jsxs14("span", { className: "text-zinc-400 font-semibold", children: [
+            "Range Bar #",
+            hoverIndex + 1,
+            ":"
+          ] }),
+          /* @__PURE__ */ jsxs14("span", { children: [
+            "O: ",
+            /* @__PURE__ */ jsxs14("strong", { className: "text-white", children: [
+              "$",
+              formatPrice(hovered.open)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs14("span", { children: [
+            "H: ",
+            /* @__PURE__ */ jsxs14("strong", { className: "text-emerald-400", children: [
+              "$",
+              formatPrice(hovered.high)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs14("span", { children: [
+            "L: ",
+            /* @__PURE__ */ jsxs14("strong", { className: "text-rose-400", children: [
+              "$",
+              formatPrice(hovered.low)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs14("span", { children: [
+            "C: ",
+            /* @__PURE__ */ jsxs14("strong", { className: hovered.close >= hovered.open ? "text-emerald-400" : "text-rose-400", children: [
+              "$",
+              formatPrice(hovered.close)
+            ] })
+          ] })
+        ] })
+      ]
+    }
+  );
+};
+
+// src/components/VortexMultiLineChart.tsx
+import { useEffect as useEffect17, useMemo as useMemo13, useState as useState15 } from "react";
+import { jsx as jsx15, jsxs as jsxs15 } from "react/jsx-runtime";
+var DEFAULT_SERIES_COLORS = [
+  "#38bdf8",
+  // Sky
+  "#10b981",
+  // Emerald
+  "#f43f5e",
+  // Rose
+  "#c084fc",
+  // Purple
+  "#eab308",
+  // Amber
+  "#f97316"
+  // Orange
+];
+var VortexMultiLineChart = ({
+  series,
+  height = 340,
+  className = "",
+  showPoints = false,
+  showWatermark = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const [hoverIndex, setHoverIndex] = useState15(null);
+  const normalizedSeries = useMemo13(() => {
+    return series.map((s, sIdx) => {
+      const color = s.color || DEFAULT_SERIES_COLORS[sIdx % DEFAULT_SERIES_COLORS.length];
+      const points = s.data.map((pt, pIdx) => {
+        if (typeof pt === "number") {
+          return { price: pt, label: `Point ${pIdx + 1}` };
+        }
+        return pt;
+      });
+      return {
+        name: s.name,
+        color,
+        points
+      };
+    });
+  }, [series]);
+  const bounds = useMemo13(() => {
+    const allPrices = [];
+    normalizedSeries.forEach((s) => {
+      s.points.forEach((p) => allPrices.push(p.price));
+    });
+    return computeBounds(allPrices, containerWidth, height);
+  }, [normalizedSeries, containerWidth, height]);
+  useEffect17(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawGridAndAxes(ctx, bounds);
+    normalizedSeries.forEach((s) => {
+      drawLineChart(ctx, s.points, bounds, {
+        color: s.color,
+        showArea: false,
+        showPoints,
+        glow: true
+      });
+    });
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, bounds, normalizedSeries, showPoints, showWatermark, theme, canvasRef]);
+  const maxPoints = Math.max(0, ...normalizedSeries.map((s) => s.points.length));
+  const handlePointerMove = (e) => {
+    if (maxPoints === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const step = bounds.plotWidth / Math.max(1, maxPoints);
+    const idx = Math.max(0, Math.min(maxPoints - 1, Math.floor((mouseX - bounds.padding.left) / step)));
+    setHoverIndex(idx);
+  };
+  return /* @__PURE__ */ jsxs15(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ jsx15("div", { className: "absolute top-2.5 right-4 z-20 flex items-center gap-3 bg-black/60 px-3 py-1 rounded-full border border-white/10 backdrop-blur-md", children: normalizedSeries.map((s) => /* @__PURE__ */ jsxs15("div", { className: "flex items-center gap-1.5 text-xs", children: [
+          /* @__PURE__ */ jsx15("span", { className: "h-2 w-2 rounded-full", style: { backgroundColor: s.color } }),
+          /* @__PURE__ */ jsx15("span", { className: "text-zinc-300 font-mono text-[11px]", children: s.name })
+        ] }, s.name)) }),
+        /* @__PURE__ */ jsx15(
+          "canvas",
+          {
+            ref: canvasRef,
+            onPointerMove: handlePointerMove,
+            onPointerLeave: () => setHoverIndex(null),
+            className: "block h-full w-full cursor-crosshair",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ jsx15("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
+        hoverIndex !== null && /* @__PURE__ */ jsxs15("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex flex-wrap items-center gap-3 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
+          /* @__PURE__ */ jsxs15("span", { className: "text-zinc-400 font-semibold", children: [
+            "Idx #",
+            hoverIndex + 1,
+            ":"
+          ] }),
+          normalizedSeries.map((s) => {
+            const pt = s.points[hoverIndex];
+            if (!pt) return null;
+            return /* @__PURE__ */ jsxs15("span", { children: [
+              /* @__PURE__ */ jsxs15("span", { style: { color: s.color }, children: [
+                s.name,
+                ":"
+              ] }),
+              " ",
+              /* @__PURE__ */ jsxs15("strong", { className: "text-white", children: [
+                "$",
+                formatPrice(pt.price)
+              ] })
+            ] }, s.name);
+          })
+        ] })
+      ]
+    }
+  );
+};
+
+// src/components/VortexScatterPlot.tsx
+import { useEffect as useEffect18, useMemo as useMemo14, useState as useState16 } from "react";
+
+// src/engine/scatter.ts
+function computeScatterBounds(points) {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const p of points) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  if (!isFinite(minX)) minX = 0;
+  if (!isFinite(maxX)) maxX = 100;
+  if (!isFinite(minY)) minY = 0;
+  if (!isFinite(maxY)) maxY = 100;
+  const spanX = Math.max(maxX - minX, 1);
+  const spanY = Math.max(maxY - minY, 1);
+  return {
+    minX: minX - spanX * 0.08,
+    maxX: maxX + spanX * 0.08,
+    minY: minY - spanY * 0.08,
+    maxY: maxY + spanY * 0.08
+  };
+}
+function drawScatterPlot(ctx, points, bounds, scatterBounds, options = {}) {
+  if (!points || points.length === 0) return;
+  const {
+    pointColor = "#38bdf8",
+    defaultRadius = 5,
+    showTrendLine = false,
+    trendLineColor = "rgba(255, 255, 255, 0.4)",
+    glow = true
+  } = options;
+  const { minX, maxX, minY, maxY } = scatterBounds;
+  const rangeX = Math.max(maxX - minX, 1e-4);
+  const rangeY = Math.max(maxY - minY, 1e-4);
+  function mapX(xVal) {
+    const ratio = (xVal - minX) / rangeX;
+    return bounds.padding.left + ratio * bounds.plotWidth;
+  }
+  function mapY(yVal) {
+    const ratio = (yVal - minY) / rangeY;
+    return bounds.padding.top + bounds.plotHeight * (1 - ratio);
+  }
+  ctx.save();
+  if (showTrendLine && points.length >= 2) {
+    let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+    const n = points.length;
+    for (const p of points) {
+      sumX += p.x;
+      sumY += p.y;
+      sumXY += p.x * p.y;
+      sumXX += p.x * p.x;
+    }
+    const slope = (n * sumXY - sumX * sumY) / Math.max(1e-4, n * sumXX - sumX * sumX);
+    const intercept = (sumY - slope * sumX) / n;
+    const x1 = minX;
+    const y1 = slope * x1 + intercept;
+    const x2 = maxX;
+    const y2 = slope * x2 + intercept;
+    ctx.strokeStyle = trendLineColor;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.moveTo(mapX(x1), mapY(y1));
+    ctx.lineTo(mapX(x2), mapY(y2));
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  if (glow) {
+    ctx.shadowColor = pointColor;
+    ctx.shadowBlur = 6;
+  }
+  for (const p of points) {
+    const px = mapX(p.x);
+    const py = mapY(p.y);
+    const radius = p.size ? Math.max(2, p.size) : defaultRadius;
+    const color = p.color || pointColor;
+    ctx.beginPath();
+    ctx.arc(px, py, radius, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// src/components/VortexScatterPlot.tsx
+import { jsx as jsx16, jsxs as jsxs16 } from "react/jsx-runtime";
+var VortexScatterPlot = ({
+  data,
+  height = 360,
+  className = "",
+  pointColor = "#38bdf8",
+  defaultRadius = 5,
+  showTrendLine = false,
+  trendLineColor = "rgba(255, 255, 255, 0.4)",
+  glow = true,
+  showWatermark = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const [hoveredPoint, setHoveredPoint] = useState16(null);
+  const scatterBounds = useMemo14(() => {
+    return computeScatterBounds(data);
+  }, [data]);
+  const bounds = useMemo14(() => {
+    return computeBounds([scatterBounds.minY, scatterBounds.maxY], containerWidth, height);
+  }, [scatterBounds, containerWidth, height]);
+  useEffect18(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawGridAndAxes(ctx, bounds);
+    drawScatterPlot(ctx, data, bounds, scatterBounds, {
+      pointColor: theme.colors?.spot ?? pointColor,
+      defaultRadius,
+      showTrendLine,
+      trendLineColor,
+      glow
+    });
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, bounds, data, scatterBounds, pointColor, defaultRadius, showTrendLine, trendLineColor, glow, showWatermark, theme, canvasRef]);
+  const handlePointerMove = (e) => {
+    if (!data || data.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const rangeX = Math.max(scatterBounds.maxX - scatterBounds.minX, 1e-4);
+    const rangeY = Math.max(scatterBounds.maxY - scatterBounds.minY, 1e-4);
+    let nearest = null;
+    let minDist = 18;
+    for (const pt of data) {
+      const px = bounds.padding.left + (pt.x - scatterBounds.minX) / rangeX * bounds.plotWidth;
+      const py = bounds.padding.top + (1 - (pt.y - scatterBounds.minY) / rangeY) * bounds.plotHeight;
+      const dist = Math.hypot(mouseX - px, mouseY - py);
+      if (dist < minDist) {
+        minDist = dist;
+        nearest = pt;
+      }
+    }
+    setHoveredPoint(nearest);
+  };
+  return /* @__PURE__ */ jsxs16(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ jsx16(
+          "canvas",
+          {
+            ref: canvasRef,
+            onPointerMove: handlePointerMove,
+            onPointerLeave: () => setHoveredPoint(null),
+            className: "block h-full w-full cursor-crosshair",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ jsx16("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
+        hoveredPoint && /* @__PURE__ */ jsxs16("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-3 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
+          hoveredPoint.label && /* @__PURE__ */ jsx16("span", { className: "font-semibold text-white", children: hoveredPoint.label }),
+          /* @__PURE__ */ jsxs16("span", { children: [
+            "X: ",
+            /* @__PURE__ */ jsx16("strong", { className: "text-sky-400", children: hoveredPoint.x.toFixed(2) })
+          ] }),
+          /* @__PURE__ */ jsxs16("span", { children: [
+            "Y: ",
+            /* @__PURE__ */ jsx16("strong", { className: "text-emerald-400", children: hoveredPoint.y.toFixed(2) })
+          ] }),
+          hoveredPoint.size && /* @__PURE__ */ jsxs16("span", { children: [
+            "Size: ",
+            /* @__PURE__ */ jsx16("strong", { className: "text-zinc-400", children: hoveredPoint.size })
+          ] })
+        ] })
+      ]
+    }
+  );
+};
+
+// src/components/VortexHeatmap.tsx
+import { useEffect as useEffect19, useMemo as useMemo15, useState as useState17 } from "react";
+
+// src/engine/heatmap.ts
+function interpolateColor(ratio, scale) {
+  const r = Math.max(0, Math.min(1, ratio));
+  if (scale === "coolwarm") {
+    const red = Math.round(244 * (1 - r) + 56 * r);
+    const green = Math.round(63 * (1 - r) + 189 * r);
+    const blue = Math.round(94 * (1 - r) + 248 * r);
+    return `rgba(${red}, ${green}, ${blue}, 0.85)`;
+  }
+  if (scale === "emerald") {
+    const alpha = 0.15 + r * 0.8;
+    return `rgba(16, 185, 129, ${alpha})`;
+  }
+  if (r < 0.5) {
+    const t = r * 2;
+    const red = Math.round(15 * (1 - t) + 56 * t);
+    const green = Math.round(23 * (1 - t) + 189 * t);
+    const blue = Math.round(42 * (1 - t) + 248 * t);
+    return `rgba(${red}, ${green}, ${blue}, ${0.2 + t * 0.6})`;
+  } else {
+    const t = (r - 0.5) * 2;
+    const red = Math.round(56 * (1 - t) + 16 * t);
+    const green = Math.round(189 * (1 - t) + 185 * t);
+    const blue = Math.round(248 * (1 - t) + 129 * t);
+    return `rgba(${red}, ${green}, ${blue}, ${0.8 + t * 0.2})`;
+  }
+}
+function drawHeatmap(ctx, data, bounds, options = {}) {
+  const { xLabels, yLabels, values } = data;
+  if (!values || values.length === 0 || !values[0] || values[0].length === 0) return;
+  const {
+    colorScale = "vortex",
+    showValues = true,
+    cellPadding = 2
+  } = options;
+  const numRows = yLabels.length;
+  const numCols = xLabels.length;
+  let min = data.minValue ?? Infinity;
+  let max = data.maxValue ?? -Infinity;
+  if (data.minValue === void 0 || data.maxValue === void 0) {
+    for (let r = 0; r < numRows; r++) {
+      for (let c = 0; c < numCols; c++) {
+        const val = values[r]?.[c] ?? 0;
+        if (val < min) min = val;
+        if (val > max) max = val;
+      }
+    }
+  }
+  const range = Math.max(max - min, 1e-4);
+  const cellWidth = bounds.plotWidth / numCols;
+  const cellHeight = bounds.plotHeight / numRows;
+  ctx.save();
+  ctx.font = "10px Inter, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (let r = 0; r < numRows; r++) {
+    for (let c = 0; c < numCols; c++) {
+      const val = values[r]?.[c] ?? 0;
+      const norm = (val - min) / range;
+      const color = interpolateColor(norm, colorScale);
+      const x = bounds.padding.left + c * cellWidth + cellPadding;
+      const y = bounds.padding.top + r * cellHeight + cellPadding;
+      const w = Math.max(1, cellWidth - cellPadding * 2);
+      const h = Math.max(1, cellHeight - cellPadding * 2);
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, y, w, h);
+      if (showValues && w >= 24 && h >= 14) {
+        ctx.fillStyle = norm > 0.65 ? "#ffffff" : "rgba(255, 255, 255, 0.75)";
+        ctx.fillText(val.toFixed(2), x + w / 2, y + h / 2);
+      }
+    }
+  }
+  ctx.fillStyle = "#94a3b8";
+  ctx.font = "9px Inter, monospace";
+  for (let c = 0; c < numCols; c++) {
+    const x = bounds.padding.left + c * cellWidth + cellWidth / 2;
+    const y = bounds.chartHeight - bounds.padding.bottom + 12;
+    ctx.fillText(xLabels[c] ?? "", x, y);
+  }
+  ctx.textAlign = "left";
+  for (let r = 0; r < numRows; r++) {
+    const x = bounds.chartWidth - bounds.padding.right + 6;
+    const y = bounds.padding.top + r * cellHeight + cellHeight / 2;
+    ctx.fillText(yLabels[r] ?? "", x, y);
+  }
+  ctx.restore();
+}
+
+// src/components/VortexHeatmap.tsx
+import { jsx as jsx17, jsxs as jsxs17 } from "react/jsx-runtime";
+var VortexHeatmap = ({
+  data,
+  height = 360,
+  className = "",
+  colorScale = "vortex",
+  showValues = true,
+  cellPadding = 2,
+  showWatermark = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const [hoveredCell, setHoveredCell] = useState17(null);
+  const bounds = useMemo15(() => {
+    return computeBounds([0, 100], containerWidth, height);
+  }, [containerWidth, height]);
+  useEffect19(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawHeatmap(ctx, data, bounds, {
+      colorScale,
+      showValues,
+      cellPadding
+    });
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, bounds, data, colorScale, showValues, cellPadding, showWatermark, theme, canvasRef]);
+  const numCols = data.xLabels.length;
+  const numRows = data.yLabels.length;
+  const handlePointerMove = (e) => {
+    if (numCols === 0 || numRows === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const left = bounds.padding.left + 20;
+    const top = bounds.padding.top;
+    const plotW = bounds.plotWidth - 20;
+    const plotH = bounds.plotHeight;
+    if (mouseX < left || mouseX > left + plotW || mouseY < top || mouseY > top + plotH) {
+      setHoveredCell(null);
+      return;
+    }
+    const col = Math.floor((mouseX - left) / plotW * numCols);
+    const row = Math.floor((mouseY - top) / plotH * numRows);
+    if (row >= 0 && row < numRows && col >= 0 && col < numCols) {
+      const val = data.values[row]?.[col] ?? 0;
+      setHoveredCell({ row, col, val });
+    } else {
+      setHoveredCell(null);
+    }
+  };
+  return /* @__PURE__ */ jsxs17(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ jsx17(
+          "canvas",
+          {
+            ref: canvasRef,
+            onPointerMove: handlePointerMove,
+            onPointerLeave: () => setHoveredCell(null),
+            className: "block h-full w-full cursor-crosshair",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ jsx17("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
+        hoveredCell && /* @__PURE__ */ jsxs17("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-3 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
+          /* @__PURE__ */ jsx17("span", { className: "text-zinc-400 font-semibold", children: data.yLabels[hoveredCell.row] || `Row ${hoveredCell.row + 1}` }),
+          /* @__PURE__ */ jsx17("span", { className: "text-zinc-500", children: "\uFFFD" }),
+          /* @__PURE__ */ jsx17("span", { className: "text-white font-semibold", children: data.xLabels[hoveredCell.col] || `Col ${hoveredCell.col + 1}` }),
+          /* @__PURE__ */ jsxs17("span", { children: [
+            "Value: ",
+            /* @__PURE__ */ jsx17("strong", { className: "text-sky-400", children: hoveredCell.val.toFixed(2) })
+          ] })
+        ] })
+      ]
+    }
+  );
+};
+
+// src/components/VortexAreaChart.tsx
+import { useEffect as useEffect20, useMemo as useMemo16, useState as useState18 } from "react";
+
+// src/engine/area.ts
+function drawAreaChart(ctx, data, bounds, options = {}) {
+  if (!data || data.length < 2) return;
+  const {
+    color = "#38bdf8",
+    gradientTopOpacity = 0.45,
+    gradientBottomOpacity = 0.02,
+    lineWidth = 2,
+    showLine = true
+  } = options;
+  const count = data.length;
+  const points = [];
+  for (let i = 0; i < count; i++) {
+    const pt = data[i];
+    const x = typeof pt.x === "number" ? pt.x : indexToX(i, count, bounds);
+    const y = priceToY(pt.y, bounds);
+    points.push({ x, y });
+  }
+  const bottomY = bounds.chartHeight - bounds.padding.bottom;
+  ctx.save();
+  const gradient = ctx.createLinearGradient(0, bounds.padding.top, 0, bottomY);
+  gradient.addColorStop(0, color.replace(")", `, ${gradientTopOpacity})`).replace("rgb", "rgba"));
+  gradient.addColorStop(1, color.replace(")", `, ${gradientBottomOpacity})`).replace("rgb", "rgba"));
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, bottomY);
+  ctx.lineTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    const midX = (prev.x + curr.x) / 2;
+    ctx.bezierCurveTo(midX, prev.y, midX, curr.y, curr.x, curr.y);
+  }
+  ctx.lineTo(points[points.length - 1].x, bottomY);
+  ctx.closePath();
+  ctx.fillStyle = gradient;
+  ctx.fill();
+  if (showLine) {
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      const prev = points[i - 1];
+      const curr = points[i];
+      const midX = (prev.x + curr.x) / 2;
+      ctx.bezierCurveTo(midX, prev.y, midX, curr.y, curr.x, curr.y);
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// src/components/VortexAreaChart.tsx
+import { jsx as jsx18, jsxs as jsxs18 } from "react/jsx-runtime";
+var VortexAreaChart = ({
+  data,
+  height = 320,
+  className = "",
+  color = "#38bdf8",
+  gradientTopOpacity = 0.45,
+  gradientBottomOpacity = 0.02,
+  lineWidth = 2,
+  showLine = true,
+  showWatermark = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const [hoverIndex, setHoverIndex] = useState18(null);
+  const bounds = useMemo16(() => {
+    const prices = data.map((d) => d.y);
+    return computeBounds(prices, containerWidth, height);
+  }, [data, containerWidth, height]);
+  useEffect20(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawGridAndAxes(ctx, bounds);
+    drawAreaChart(ctx, data, bounds, {
+      color: theme.colors?.spot ?? color,
+      gradientTopOpacity,
+      gradientBottomOpacity,
+      lineWidth,
+      showLine
+    });
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, bounds, data, color, gradientTopOpacity, gradientBottomOpacity, lineWidth, showLine, showWatermark, theme, canvasRef]);
+  const handlePointerMove = (e) => {
+    if (!data || data.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const step = bounds.plotWidth / Math.max(1, data.length);
+    const idx = Math.max(0, Math.min(data.length - 1, Math.floor((mouseX - bounds.padding.left) / step)));
+    setHoverIndex(idx);
+  };
+  const hovered = hoverIndex !== null ? data[hoverIndex] : null;
+  return /* @__PURE__ */ jsxs18(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ jsx18(
+          "canvas",
+          {
+            ref: canvasRef,
+            onPointerMove: handlePointerMove,
+            onPointerLeave: () => setHoverIndex(null),
+            className: "block h-full w-full cursor-crosshair",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ jsx18("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
+        hovered && /* @__PURE__ */ jsxs18("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-3 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
+          hovered.label && /* @__PURE__ */ jsx18("span", { className: "font-semibold text-white", children: hovered.label }),
+          /* @__PURE__ */ jsxs18("span", { children: [
+            "Value: ",
+            /* @__PURE__ */ jsxs18("strong", { className: "text-sky-400", children: [
+              "$",
+              formatPrice(hovered.y)
+            ] })
+          ] })
+        ] })
+      ]
+    }
+  );
+};
+
+// src/components/VortexBoxPlot.tsx
+import { useEffect as useEffect21, useMemo as useMemo17, useState as useState19 } from "react";
+
+// src/engine/box-plot.ts
+function computeBoxPlotStats(rawValues, label = "") {
+  if (!rawValues || rawValues.length === 0) {
+    return { label, min: 0, q1: 0, median: 0, q3: 0, max: 0 };
+  }
+  const sorted = [...rawValues].sort((a, b) => a - b);
+  const n = sorted.length;
+  function quantile(q) {
+    const pos = (n - 1) * q;
+    const base = Math.floor(pos);
+    const rest = pos - base;
+    if (sorted[base + 1] !== void 0) {
+      return sorted[base] + rest * (sorted[base + 1] - sorted[base]);
+    }
+    return sorted[base];
+  }
+  const q1 = quantile(0.25);
+  const median = quantile(0.5);
+  const q3 = quantile(0.75);
+  const iqr = q3 - q1;
+  const lowerFence = q1 - 1.5 * iqr;
+  const upperFence = q3 + 1.5 * iqr;
+  const nonOutliers = sorted.filter((v) => v >= lowerFence && v <= upperFence);
+  const outliers = sorted.filter((v) => v < lowerFence || v > upperFence);
+  const min = nonOutliers.length > 0 ? nonOutliers[0] : sorted[0];
+  const max = nonOutliers.length > 0 ? nonOutliers[nonOutliers.length - 1] : sorted[n - 1];
+  return {
+    label,
+    min,
+    q1,
+    median,
+    q3,
+    max,
+    outliers
+  };
+}
+function drawBoxPlot(ctx, data, bounds, options = {}) {
+  if (!data || data.length === 0) return;
+  const {
+    boxColor = "rgba(56, 189, 248, 0.25)",
+    medianColor = "#eab308",
+    whiskerColor = "#94a3b8",
+    outlierColor = "#f43f5e"
+  } = options;
+  const count = data.length;
+  const slotWidth = bounds.plotWidth / Math.max(1, count);
+  const boxWidth = Math.max(12, Math.min(60, slotWidth * 0.55));
+  const whiskerCapWidth = boxWidth * 0.5;
+  ctx.save();
+  for (let i = 0; i < count; i++) {
+    const item = data[i];
+    const centerX = Math.round(indexToX(i, count, bounds));
+    const leftX = Math.round(centerX - boxWidth / 2);
+    const yMin = Math.round(priceToY(item.min, bounds));
+    const yQ1 = Math.round(priceToY(item.q1, bounds));
+    const yMedian = Math.round(priceToY(item.median, bounds));
+    const yQ3 = Math.round(priceToY(item.q3, bounds));
+    const yMax = Math.round(priceToY(item.max, bounds));
+    ctx.strokeStyle = whiskerColor;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(centerX, yQ1);
+    ctx.lineTo(centerX, yMin);
+    ctx.moveTo(centerX - whiskerCapWidth / 2, yMin);
+    ctx.lineTo(centerX + whiskerCapWidth / 2, yMin);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(centerX, yQ3);
+    ctx.lineTo(centerX, yMax);
+    ctx.moveTo(centerX - whiskerCapWidth / 2, yMax);
+    ctx.lineTo(centerX + whiskerCapWidth / 2, yMax);
+    ctx.stroke();
+    const boxHeight = Math.max(2, yQ1 - yQ3);
+    ctx.fillStyle = boxColor;
+    ctx.fillRect(leftX, yQ3, boxWidth, boxHeight);
+    ctx.strokeStyle = "#38bdf8";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(leftX, yQ3, boxWidth, boxHeight);
+    ctx.strokeStyle = medianColor;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(leftX, yMedian);
+    ctx.lineTo(leftX + boxWidth, yMedian);
+    ctx.stroke();
+    if (item.outliers && item.outliers.length > 0) {
+      ctx.fillStyle = outlierColor;
+      for (const out of item.outliers) {
+        const yOut = Math.round(priceToY(out, bounds));
+        ctx.beginPath();
+        ctx.arc(centerX, yOut, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    if (item.label) {
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "10px Inter, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(item.label, centerX, bounds.chartHeight - bounds.padding.bottom + 14);
+    }
+  }
+  ctx.restore();
+}
+
+// src/components/VortexBoxPlot.tsx
+import { jsx as jsx19, jsxs as jsxs19 } from "react/jsx-runtime";
+var VortexBoxPlot = ({
+  data,
+  height = 360,
+  className = "",
+  boxColor = "rgba(56, 189, 248, 0.35)",
+  medianColor = "#eab308",
+  whiskerColor = "rgba(255, 255, 255, 0.4)",
+  outlierColor = "#f43f5e",
+  showWatermark = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const [hoverIndex, setHoverIndex] = useState19(null);
+  const normalizedItems = useMemo17(() => {
+    return data.map((item) => {
+      if ("values" in item && Array.isArray(item.values)) {
+        return computeBoxPlotStats(item.values, item.label);
+      }
+      return item;
+    });
+  }, [data]);
+  const bounds = useMemo17(() => {
+    const allValues = [];
+    normalizedItems.forEach((it) => {
+      allValues.push(it.min, it.q1, it.median, it.q3, it.max);
+      if (it.outliers) {
+        allValues.push(...it.outliers);
+      }
+    });
+    return computeBounds(allValues, containerWidth, height);
+  }, [normalizedItems, containerWidth, height]);
+  useEffect21(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawGridAndAxes(ctx, bounds);
+    drawBoxPlot(ctx, normalizedItems, bounds, {
+      boxColor,
+      medianColor,
+      whiskerColor,
+      outlierColor
+    });
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, bounds, normalizedItems, boxColor, medianColor, whiskerColor, outlierColor, showWatermark, theme, canvasRef]);
+  const handlePointerMove = (e) => {
+    if (!normalizedItems || normalizedItems.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const step = bounds.plotWidth / Math.max(1, normalizedItems.length);
+    const idx = Math.max(0, Math.min(normalizedItems.length - 1, Math.floor((mouseX - bounds.padding.left) / step)));
+    setHoverIndex(idx);
+  };
+  const hovered = hoverIndex !== null ? normalizedItems[hoverIndex] : null;
+  return /* @__PURE__ */ jsxs19(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ jsx19(
+          "canvas",
+          {
+            ref: canvasRef,
+            onPointerMove: handlePointerMove,
+            onPointerLeave: () => setHoverIndex(null),
+            className: "block h-full w-full cursor-crosshair",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ jsx19("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
+        hovered && /* @__PURE__ */ jsxs19("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex flex-wrap items-center gap-2.5 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
+          /* @__PURE__ */ jsxs19("span", { className: "font-semibold text-white", children: [
+            hovered.label,
+            ":"
+          ] }),
+          /* @__PURE__ */ jsxs19("span", { children: [
+            "Min: ",
+            /* @__PURE__ */ jsxs19("strong", { className: "text-zinc-400", children: [
+              "$",
+              formatPrice(hovered.min)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs19("span", { children: [
+            "Q1: ",
+            /* @__PURE__ */ jsxs19("strong", { className: "text-sky-400", children: [
+              "$",
+              formatPrice(hovered.q1)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs19("span", { children: [
+            "Median: ",
+            /* @__PURE__ */ jsxs19("strong", { className: "text-amber-400", children: [
+              "$",
+              formatPrice(hovered.median)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs19("span", { children: [
+            "Q3: ",
+            /* @__PURE__ */ jsxs19("strong", { className: "text-sky-400", children: [
+              "$",
+              formatPrice(hovered.q3)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs19("span", { children: [
+            "Max: ",
+            /* @__PURE__ */ jsxs19("strong", { className: "text-zinc-400", children: [
+              "$",
+              formatPrice(hovered.max)
+            ] })
+          ] }),
+          hovered.outliers && hovered.outliers.length > 0 && /* @__PURE__ */ jsxs19("span", { children: [
+            "Outliers: ",
+            /* @__PURE__ */ jsx19("strong", { className: "text-rose-400", children: hovered.outliers.length })
+          ] })
+        ] })
+      ]
+    }
+  );
+};
+
+// src/components/VortexWaterfallChart.tsx
+import { useEffect as useEffect22, useMemo as useMemo18, useState as useState20 } from "react";
+
+// src/engine/waterfall.ts
+function drawWaterfallChart(ctx, bars, bounds, options = {}) {
+  if (!bars || bars.length === 0) return;
+  const {
+    positiveColor = "#10b981",
+    negativeColor = "#f43f5e",
+    totalColor = "#38bdf8",
+    connectorColor = "rgba(255, 255, 255, 0.2)"
+  } = options;
+  const count = bars.length;
+  const slotWidth = bounds.plotWidth / Math.max(1, count);
+  const barWidth = Math.max(12, Math.min(60, slotWidth * 0.65));
+  ctx.save();
+  ctx.font = "10px Inter, sans-serif";
+  let runningTotal = 0;
+  let prevY = Math.round(priceToY(0, bounds));
+  for (let i = 0; i < count; i++) {
+    const b = bars[i];
+    const centerX = Math.round(indexToX(i, count, bounds));
+    const leftX = Math.round(centerX - barWidth / 2);
+    let topVal;
+    let bottomVal;
+    let color;
+    if (b.isTotal) {
+      bottomVal = 0;
+      topVal = b.value;
+      color = totalColor;
+      runningTotal = b.value;
+    } else {
+      bottomVal = runningTotal;
+      topVal = runningTotal + b.value;
+      color = b.value >= 0 ? positiveColor : negativeColor;
+      runningTotal = topVal;
+    }
+    const yStart = Math.round(priceToY(bottomVal, bounds));
+    const yEnd = Math.round(priceToY(topVal, bounds));
+    const yTop = Math.min(yStart, yEnd);
+    const height = Math.max(2, Math.abs(yEnd - yStart));
+    ctx.fillStyle = color;
+    ctx.fillRect(leftX, yTop, barWidth, height);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(leftX, yTop, barWidth, height);
+    if (i > 0) {
+      ctx.strokeStyle = connectorColor;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 2]);
+      ctx.beginPath();
+      ctx.moveTo(leftX - (slotWidth - barWidth), prevY);
+      ctx.lineTo(leftX, prevY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    prevY = yEnd;
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center";
+    const valueStr = b.isTotal ? `$${b.value.toLocaleString()}` : `${b.value >= 0 ? "+" : ""}$${b.value.toLocaleString()}`;
+    ctx.fillText(valueStr, centerX, yTop - 6);
+    ctx.fillStyle = "#94a3b8";
+    ctx.fillText(b.label, centerX, bounds.chartHeight - bounds.padding.bottom + 14);
+  }
+  ctx.restore();
+}
+
+// src/components/VortexWaterfallChart.tsx
+import { jsx as jsx20, jsxs as jsxs20 } from "react/jsx-runtime";
+var VortexWaterfallChart = ({
+  data,
+  height = 360,
+  className = "",
+  positiveColor = "#10b981",
+  negativeColor = "#f43f5e",
+  totalColor = "#38bdf8",
+  connectorColor = "rgba(255, 255, 255, 0.2)",
+  showWatermark = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const [hoverIndex, setHoverIndex] = useState20(null);
+  const bounds = useMemo18(() => {
+    let running = 0;
+    const values = [0];
+    data.forEach((b) => {
+      if (b.isTotal) {
+        running = b.value;
+      } else {
+        running += b.value;
+      }
+      values.push(running);
+    });
+    return computeBounds(values, containerWidth, height);
+  }, [data, containerWidth, height]);
+  useEffect22(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawGridAndAxes(ctx, bounds);
+    drawWaterfallChart(ctx, data, bounds, {
+      positiveColor: theme.colors?.bullish ?? positiveColor,
+      negativeColor: theme.colors?.bearish ?? negativeColor,
+      totalColor,
+      connectorColor
+    });
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, bounds, data, positiveColor, negativeColor, totalColor, connectorColor, showWatermark, theme, canvasRef]);
+  const handlePointerMove = (e) => {
+    if (!data || data.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const step = bounds.plotWidth / Math.max(1, data.length);
+    const idx = Math.max(0, Math.min(data.length - 1, Math.floor((mouseX - bounds.padding.left) / step)));
+    setHoverIndex(idx);
+  };
+  const hovered = hoverIndex !== null ? data[hoverIndex] : null;
+  return /* @__PURE__ */ jsxs20(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ jsx20(
+          "canvas",
+          {
+            ref: canvasRef,
+            onPointerMove: handlePointerMove,
+            onPointerLeave: () => setHoverIndex(null),
+            className: "block h-full w-full cursor-crosshair",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ jsx20("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
+        hovered && /* @__PURE__ */ jsxs20("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-3 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
+          /* @__PURE__ */ jsx20("span", { className: "font-semibold text-white", children: hovered.label }),
+          /* @__PURE__ */ jsxs20("span", { children: [
+            "Delta: ",
+            /* @__PURE__ */ jsxs20("strong", { className: hovered.value >= 0 ? "text-emerald-400" : "text-rose-400", children: [
+              hovered.value >= 0 ? "+" : "",
+              "$",
+              formatPrice(hovered.value)
+            ] })
+          ] }),
+          hovered.isTotal && /* @__PURE__ */ jsx20("span", { className: "text-sky-400 font-semibold", children: "(Total)" })
+        ] })
+      ]
+    }
+  );
+};
+
+// src/components/VortexRadarChart.tsx
+import { useEffect as useEffect23, useMemo as useMemo19 } from "react";
+
+// src/engine/radar.ts
+function drawRadarChart(ctx, dimensions, seriesList, bounds, options = {}) {
+  if (!dimensions || dimensions.length < 3 || !seriesList || seriesList.length === 0) return;
+  const {
+    levels = 4,
+    gridColor = "rgba(255, 255, 255, 0.08)",
+    labelColor = "#94a3b8"
+  } = options;
+  const numAxes = dimensions.length;
+  const centerX = bounds.chartWidth / 2;
+  const centerY = bounds.chartHeight / 2;
+  const maxRadius = Math.min(bounds.plotWidth, bounds.plotHeight) / 2 - 30;
+  if (maxRadius <= 10) return;
+  const angleStep = Math.PI * 2 / numAxes;
+  ctx.save();
+  ctx.strokeStyle = gridColor;
+  ctx.lineWidth = 1;
+  for (let lvl = 1; lvl <= levels; lvl++) {
+    const r = lvl / levels * maxRadius;
+    ctx.beginPath();
+    for (let a = 0; a < numAxes; a++) {
+      const angle = a * angleStep - Math.PI / 2;
+      const x = centerX + Math.cos(angle) * r;
+      const y = centerY + Math.sin(angle) * r;
+      if (a === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+  }
+  for (let a = 0; a < numAxes; a++) {
+    const angle = a * angleStep - Math.PI / 2;
+    const x = centerX + Math.cos(angle) * maxRadius;
+    const y = centerY + Math.sin(angle) * maxRadius;
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    const labelDist = maxRadius + 16;
+    const lx = centerX + Math.cos(angle) * labelDist;
+    const ly = centerY + Math.sin(angle) * labelDist;
+    ctx.fillStyle = labelColor;
+    ctx.font = "10px Inter, sans-serif";
+    ctx.textAlign = Math.abs(Math.cos(angle)) < 0.1 ? "center" : Math.cos(angle) > 0 ? "left" : "right";
+    ctx.textBaseline = "middle";
+    ctx.fillText(dimensions[a].name, lx, ly);
+  }
+  const defaultColors = ["#38bdf8", "#10b981", "#c084fc", "#eab308"];
+  seriesList.forEach((series, sIdx) => {
+    const color = series.color ?? defaultColors[sIdx % defaultColors.length];
+    const fillOpacity = series.fillOpacity ?? 0.25;
+    ctx.beginPath();
+    for (let a = 0; a < numAxes; a++) {
+      const maxVal = dimensions[a].max ?? 100;
+      const rawVal = series.values[a] ?? 0;
+      const ratio = Math.max(0, Math.min(1, rawVal / maxVal));
+      const r = ratio * maxRadius;
+      const angle = a * angleStep - Math.PI / 2;
+      const x = centerX + Math.cos(angle) * r;
+      const y = centerY + Math.sin(angle) * r;
+      if (a === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = color.replace(")", `, ${fillOpacity})`).replace("rgb", "rgba");
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    for (let a = 0; a < numAxes; a++) {
+      const maxVal = dimensions[a].max ?? 100;
+      const rawVal = series.values[a] ?? 0;
+      const ratio = Math.max(0, Math.min(1, rawVal / maxVal));
+      const r = ratio * maxRadius;
+      const angle = a * angleStep - Math.PI / 2;
+      const x = centerX + Math.cos(angle) * r;
+      const y = centerY + Math.sin(angle) * r;
+      ctx.beginPath();
+      ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+  });
+  ctx.restore();
+}
+
+// src/components/VortexRadarChart.tsx
+import { jsx as jsx21, jsxs as jsxs21 } from "react/jsx-runtime";
+var DEFAULT_SERIES_COLORS2 = [
+  "#38bdf8",
+  "#10b981",
+  "#f43f5e",
+  "#c084fc",
+  "#eab308"
+];
+var VortexRadarChart = ({
+  dimensions,
+  series,
+  height = 360,
+  className = "",
+  levels = 4,
+  gridColor = "rgba(255, 255, 255, 0.08)",
+  labelColor = "#94a3b8",
+  showWatermark = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const normalizedSeries = useMemo19(() => {
+    return series.map((s, idx) => ({
+      ...s,
+      color: s.color || DEFAULT_SERIES_COLORS2[idx % DEFAULT_SERIES_COLORS2.length]
+    }));
+  }, [series]);
+  const bounds = useMemo19(() => {
+    return computeBounds([0, 100], containerWidth, height);
+  }, [containerWidth, height]);
+  useEffect23(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawRadarChart(ctx, dimensions, normalizedSeries, bounds, {
+      levels,
+      gridColor,
+      labelColor
+    });
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, bounds, dimensions, normalizedSeries, levels, gridColor, labelColor, showWatermark, theme, canvasRef]);
+  return /* @__PURE__ */ jsxs21(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ jsx21("div", { className: "absolute top-2.5 right-4 z-20 flex items-center gap-3 bg-black/60 px-3 py-1 rounded-full border border-white/10 backdrop-blur-md", children: normalizedSeries.map((s) => /* @__PURE__ */ jsxs21("div", { className: "flex items-center gap-1.5 text-xs", children: [
+          /* @__PURE__ */ jsx21("span", { className: "h-2 w-2 rounded-full", style: { backgroundColor: s.color } }),
+          /* @__PURE__ */ jsx21("span", { className: "text-zinc-300 font-mono text-[11px]", children: s.name })
+        ] }, s.name)) }),
+        /* @__PURE__ */ jsx21(
+          "canvas",
+          {
+            ref: canvasRef,
+            className: "block h-full w-full",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ jsx21("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" })
+      ]
+    }
+  );
+};
+
+// src/components/VortexPieChart.tsx
+import { useEffect as useEffect24, useMemo as useMemo20, useState as useState21 } from "react";
+
+// src/engine/pie.ts
+function drawPieChart(ctx, slices, bounds, options = {}) {
+  if (!slices || slices.length === 0) return;
+  const {
+    donutHole = 0.55,
+    hoverIndex = null,
+    borderColor = "#020616",
+    showLabels = true
+  } = options;
+  const total = slices.reduce((acc, s) => acc + Math.max(0, s.value), 0);
+  if (total <= 0) return;
+  const centerX = bounds.chartWidth / 2;
+  const centerY = bounds.chartHeight / 2;
+  const outerRadius = Math.min(bounds.plotWidth, bounds.plotHeight) / 2 - 20;
+  const innerRadius = outerRadius * donutHole;
+  if (outerRadius <= 10) return;
+  const defaultPalette = [
+    "#38bdf8",
+    // Cyan
+    "#10b981",
+    // Emerald
+    "#f43f5e",
+    // Rose
+    "#c084fc",
+    // Purple
+    "#eab308",
+    // Yellow
+    "#f97316",
+    // Orange
+    "#06b6d4"
+    // Sky
+  ];
+  ctx.save();
+  let startAngle = -Math.PI / 2;
+  for (let i = 0; i < slices.length; i++) {
+    const s = slices[i];
+    const val = Math.max(0, s.value);
+    const sliceAngle = val / total * Math.PI * 2;
+    const endAngle = startAngle + sliceAngle;
+    const isHovered = hoverIndex === i;
+    const midAngle = startAngle + sliceAngle / 2;
+    const offset = isHovered ? 8 : 0;
+    const cx = centerX + Math.cos(midAngle) * offset;
+    const cy = centerY + Math.sin(midAngle) * offset;
+    const color = s.color ?? defaultPalette[i % defaultPalette.length];
+    ctx.beginPath();
+    ctx.arc(cx, cy, outerRadius, startAngle, endAngle);
+    if (innerRadius > 0) {
+      ctx.arc(cx, cy, innerRadius, endAngle, startAngle, true);
+    } else {
+      ctx.lineTo(cx, cy);
+    }
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    if (showLabels && sliceAngle > 0.2) {
+      const labelRadius = (innerRadius + outerRadius) / 2;
+      const lx = cx + Math.cos(midAngle) * labelRadius;
+      const ly = cy + Math.sin(midAngle) * labelRadius;
+      const percent = Math.round(val / total * 100);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 10px Inter, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(`${percent}%`, lx, ly);
+    }
+    startAngle = endAngle;
+  }
+  ctx.restore();
+}
+
+// src/components/VortexPieChart.tsx
+import { jsx as jsx22, jsxs as jsxs22 } from "react/jsx-runtime";
+var VortexPieChart = ({
+  data,
+  height = 360,
+  className = "",
+  donut = true,
+  donutHole = 0.55,
+  borderColor = "#020616",
+  showLabels = true,
+  showWatermark = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const [hoverIndex, setHoverIndex] = useState21(null);
+  const total = useMemo20(() => {
+    return data.reduce((acc, s) => acc + Math.max(0, s.value), 0);
+  }, [data]);
+  const bounds = useMemo20(() => {
+    return computeBounds([0, 100], containerWidth, height);
+  }, [containerWidth, height]);
+  const effectiveHole = donut ? donutHole : 0;
+  useEffect24(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawPieChart(ctx, data, bounds, {
+      donutHole: effectiveHole,
+      hoverIndex,
+      borderColor,
+      showLabels
+    });
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, bounds, data, effectiveHole, hoverIndex, borderColor, showLabels, showWatermark, theme, canvasRef]);
+  const handlePointerMove = (e) => {
+    if (total <= 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const centerX = bounds.chartWidth / 2;
+    const centerY = bounds.chartHeight / 2;
+    const dx = mouseX - centerX;
+    const dy = mouseY - centerY;
+    const dist = Math.hypot(dx, dy);
+    const outerRadius = Math.min(bounds.plotWidth, bounds.plotHeight) / 2 - 20;
+    const innerRadius = outerRadius * effectiveHole;
+    if (dist < innerRadius || dist > outerRadius) {
+      setHoverIndex(null);
+      return;
+    }
+    let angle = Math.atan2(dy, dx);
+    if (angle < -Math.PI / 2) {
+      angle += Math.PI * 2;
+    }
+    let currentAngle = -Math.PI / 2;
+    for (let i = 0; i < data.length; i++) {
+      const sliceAngle = Math.max(0, data[i].value) / total * (Math.PI * 2);
+      if (angle >= currentAngle && angle <= currentAngle + sliceAngle) {
+        setHoverIndex(i);
+        return;
+      }
+      currentAngle += sliceAngle;
+    }
+    setHoverIndex(null);
+  };
+  const hovered = hoverIndex !== null ? data[hoverIndex] : null;
+  const hoveredPct = hovered && total > 0 ? (Math.max(0, hovered.value) / total * 100).toFixed(1) : null;
+  return /* @__PURE__ */ jsxs22(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ jsx22(
+          "canvas",
+          {
+            ref: canvasRef,
+            onPointerMove: handlePointerMove,
+            onPointerLeave: () => setHoverIndex(null),
+            className: "block h-full w-full cursor-pointer",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ jsx22("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
+        hovered && /* @__PURE__ */ jsxs22("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-3 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
+          /* @__PURE__ */ jsxs22("span", { className: "font-semibold text-white", children: [
+            hovered.label,
+            ":"
+          ] }),
+          /* @__PURE__ */ jsxs22("span", { children: [
+            "Value: ",
+            /* @__PURE__ */ jsxs22("strong", { className: "text-white", children: [
+              "$",
+              formatPrice(hovered.value)
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs22("span", { className: "text-sky-400 font-semibold", children: [
+            "(",
+            hoveredPct,
+            "%)"
+          ] })
+        ] })
+      ]
+    }
+  );
+};
+
+// src/components/VortexChoroplethMap.tsx
+import { useEffect as useEffect25, useMemo as useMemo21, useState as useState22 } from "react";
+
+// src/engine/choropleth.ts
+function drawChoropleth(ctx, regions, bounds, options = {}) {
+  if (!regions || regions.length === 0) return;
+  const defaultColorScale = (r) => {
+    const alpha = 0.2 + Math.max(0, Math.min(1, r)) * 0.75;
+    return `rgba(56, 189, 248, ${alpha})`;
+  };
+  const {
+    colorScale = defaultColorScale,
+    borderColor = "rgba(255, 255, 255, 0.25)",
+    showLabels = true
+  } = options;
+  let minVal = Infinity;
+  let maxVal = -Infinity;
+  for (const r of regions) {
+    if (r.value < minVal) minVal = r.value;
+    if (r.value > maxVal) maxVal = r.value;
+  }
+  const range = Math.max(maxVal - minVal, 1e-4);
+  ctx.save();
+  ctx.lineWidth = 1;
+  for (const region of regions) {
+    const ratio = (region.value - minVal) / range;
+    const fillColor = colorScale(ratio);
+    for (const poly of region.polygons) {
+      if (!poly.points || poly.points.length < 3) continue;
+      ctx.beginPath();
+      for (let i = 0; i < poly.points.length; i++) {
+        const [nx, ny] = poly.points[i];
+        const screenX = bounds.padding.left + nx * bounds.plotWidth;
+        const screenY = bounds.padding.top + ny * bounds.plotHeight;
+        if (i === 0) ctx.moveTo(screenX, screenY);
+        else ctx.lineTo(screenX, screenY);
+      }
+      ctx.closePath();
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+      ctx.strokeStyle = borderColor;
+      ctx.stroke();
+    }
+    if (showLabels && region.polygons.length > 0 && region.polygons[0].points.length > 0) {
+      const pts = region.polygons[0].points;
+      let sumX = 0, sumY = 0;
+      for (const p of pts) {
+        sumX += p[0];
+        sumY += p[1];
+      }
+      const cx = bounds.padding.left + sumX / pts.length * bounds.plotWidth;
+      const cy = bounds.padding.top + sumY / pts.length * bounds.plotHeight;
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "9px Inter, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(region.name, cx, cy);
+    }
+  }
+  ctx.restore();
+}
+
+// src/components/VortexChoroplethMap.tsx
+import { jsx as jsx23, jsxs as jsxs23 } from "react/jsx-runtime";
+var VortexChoroplethMap = ({
+  regions,
+  height = 380,
+  className = "",
+  borderColor = "rgba(255, 255, 255, 0.25)",
+  showLabels = true,
+  showWatermark = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const [hoveredRegion, setHoveredRegion] = useState22(null);
+  const bounds = useMemo21(() => {
+    return computeBounds([0, 100], containerWidth, height);
+  }, [containerWidth, height]);
+  useEffect25(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawChoropleth(ctx, regions, bounds, {
+      borderColor,
+      showLabels
+    });
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, bounds, regions, borderColor, showLabels, showWatermark, theme, canvasRef]);
+  const handlePointerMove = (e) => {
+    if (!regions || regions.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    let hit = null;
+    for (const region of regions) {
+      for (const poly of region.polygons) {
+        let inside = false;
+        const pts = poly.points;
+        for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+          const xi = bounds.padding.left + pts[i][0] * bounds.plotWidth;
+          const yi = bounds.padding.top + pts[i][1] * bounds.plotHeight;
+          const xj = bounds.padding.left + pts[j][0] * bounds.plotWidth;
+          const yj = bounds.padding.top + pts[j][1] * bounds.plotHeight;
+          const intersect = yi > mouseY !== yj > mouseY && mouseX < (xj - xi) * (mouseY - yi) / (yj - yi) + xi;
+          if (intersect) inside = !inside;
+        }
+        if (inside) {
+          hit = region;
+          break;
+        }
+      }
+      if (hit) break;
+    }
+    setHoveredRegion(hit);
+  };
+  return /* @__PURE__ */ jsxs23(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ jsx23(
+          "canvas",
+          {
+            ref: canvasRef,
+            onPointerMove: handlePointerMove,
+            onPointerLeave: () => setHoveredRegion(null),
+            className: "block h-full w-full cursor-crosshair",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ jsx23("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
+        hoveredRegion && /* @__PURE__ */ jsxs23("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-3 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
+          /* @__PURE__ */ jsx23("span", { className: "font-semibold text-white", children: hoveredRegion.name }),
+          /* @__PURE__ */ jsxs23("span", { children: [
+            "Value: ",
+            /* @__PURE__ */ jsxs23("strong", { className: "text-sky-400", children: [
+              "$",
+              formatPrice(hoveredRegion.value)
+            ] })
+          ] })
+        ] })
+      ]
+    }
+  );
+};
 export {
   VORTEX_THEME,
+  VortexAreaChart,
   VortexBarChart,
+  VortexBoxPlot,
   VortexCandleChart,
   VortexChartControls,
+  VortexChoroplethMap,
   VortexConeChart,
+  VortexFootprintChart,
+  VortexHeatmap,
+  VortexHeikinAshiChart,
+  VortexLineChart,
+  VortexMultiLineChart,
+  VortexOhlcChart,
+  VortexPieChart,
+  VortexPointFigureChart,
+  VortexRadarChart,
+  VortexRangeBarChart,
   VortexRangeChart,
+  VortexRenkoChart,
+  VortexScatterPlot,
+  VortexVolumeProfileChart,
+  VortexWaterfallChart,
   VortexWatermarkOverlay,
   computeBarBounds,
+  computeBoxPlotStats,
+  computeHeikinAshi,
+  computePointAndFigure,
+  computeRangeBars,
+  computeRenkoBricks,
+  computeScatterBounds,
+  computeVolumeProfile,
   computeZoneRect,
   createTailViewport,
   createViewport,
+  drawAreaChart,
   drawBarChart,
   drawBarHoverBand,
+  drawBoxPlot,
   drawChartZones,
+  drawChoropleth,
+  drawFootprintChart,
+  drawHeatmap,
+  drawLineChart,
+  drawOhlcBars,
+  drawPieChart,
+  drawPointAndFigure,
+  drawRadarChart,
+  drawRenkoBricks,
   drawRulerOverlay,
+  drawScatterPlot,
+  drawVolumeProfile,
   drawVortexWatermark,
+  drawWaterfallChart,
   followViewport,
   formatCandleTime,
   formatChange,
