@@ -16,6 +16,8 @@ export interface VortexVolumeProfileChartProps {
   valueAreaRatio?: number;
   alignment?: "left" | "right";
   showCandles?: boolean;
+  upColor?: string;
+  downColor?: string;
   pocColor?: string;
   valueAreaColor?: string;
   otherAreaColor?: string;
@@ -31,6 +33,8 @@ export const VortexVolumeProfileChart: React.FC<VortexVolumeProfileChartProps> =
   valueAreaRatio = 0.7,
   alignment = "right",
   showCandles = true,
+  upColor = "#10b981",
+  downColor = "#f43f5e",
   pocColor = "#eab308",
   valueAreaColor = "rgba(56, 189, 248, 0.4)",
   otherAreaColor = "rgba(100, 116, 139, 0.2)",
@@ -68,8 +72,8 @@ export const VortexVolumeProfileChart: React.FC<VortexVolumeProfileChartProps> =
 
     if (showCandles && data.length > 0) {
       drawCandlesticks(ctx, data, bounds, {
-        upColor: theme.colors?.bullish ?? "#10b981",
-        downColor: theme.colors?.bearish ?? "#f43f5e",
+        upColor: theme.colors?.bullish ?? upColor,
+        downColor: theme.colors?.bearish ?? downColor,
       });
     }
 
@@ -86,7 +90,7 @@ export const VortexVolumeProfileChart: React.FC<VortexVolumeProfileChartProps> =
     if (showWatermark) {
       drawVortexWatermark(ctx, bounds);
     }
-  }, [containerWidth, height, bounds, data, profile, alignment, showCandles, pocColor, valueAreaColor, otherAreaColor, showWatermark, theme, canvasRef]);
+  }, [containerWidth, height, bounds, data, profile, alignment, showCandles, upColor, downColor, pocColor, valueAreaColor, otherAreaColor, showWatermark, theme, canvasRef]);
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!data || data.length === 0) return;

@@ -45,7 +45,7 @@ export const VortexWaterfallChart: React.FC<VortexWaterfallChartProps> = ({
       }
       values.push(running);
     });
-    return computeBounds(values, containerWidth, height);
+    return computeBounds(values, containerWidth, height, { allowZeroOrNegative: true });
   }, [data, containerWidth, height]);
 
   useEffect(() => {
@@ -100,7 +100,7 @@ export const VortexWaterfallChart: React.FC<VortexWaterfallChartProps> = ({
       {hovered && (
         <div className="pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-3 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300">
           <span className="font-semibold text-white">{hovered.label}</span>
-          <span>Delta: <strong className={hovered.value >= 0 ? "text-emerald-400" : "text-rose-400"}>{hovered.value >= 0 ? "+" : ""}${formatPrice(hovered.value)}</strong></span>
+          <span>Value: <strong className={hovered.isTotal ? "text-sky-400" : (hovered.value >= 0 ? "text-emerald-400" : "text-rose-400")}>{hovered.isTotal ? "" : (hovered.value >= 0 ? "+" : "")}${formatPrice(hovered.value)}</strong></span>
           {hovered.isTotal && <span className="text-sky-400 font-semibold">(Total)</span>}
         </div>
       )}

@@ -23,7 +23,7 @@ export interface DrawBoxPlotOptions {
  */
 export function computeBoxPlotStats(rawValues: number[], label: string = ""): BoxPlotItem {
   if (!rawValues || rawValues.length === 0) {
-    return { label, min: 0, q1: 0, median: 0, q3: 0, max: 0 };
+    return { label, min: 0, q1: 0, median: 0, q3: 0, max: 0, outliers: [] };
   }
 
   const sorted = [...rawValues].sort((a, b) => a - b);

@@ -45,6 +45,7 @@ __export(index_exports, {
   VortexVolumeProfileChart: () => VortexVolumeProfileChart,
   VortexWaterfallChart: () => VortexWaterfallChart,
   VortexWatermarkOverlay: () => VortexWatermarkOverlay,
+  colorWithAlpha: () => colorWithAlpha,
   computeBarBounds: () => computeBarBounds,
   computeBoxPlotStats: () => computeBoxPlotStats,
   computeHeikinAshi: () => computeHeikinAshi,
@@ -146,14 +147,15 @@ function computeBounds(prices, width, height, paddingOrScale, scaleOpt) {
   let padding = DEFAULT_PADDING;
   let verticalScale = scaleOpt;
   if (paddingOrScale) {
-    if ("factor" in paddingOrScale || "offset" in paddingOrScale) {
+    if ("factor" in paddingOrScale || "offset" in paddingOrScale || "allowZeroOrNegative" in paddingOrScale) {
       verticalScale = paddingOrScale;
     } else {
       padding = paddingOrScale;
     }
   }
+  const allowZero = verticalScale?.allowZeroOrNegative ?? false;
   const validPrices = prices.filter(
-    (p) => typeof p === "number" && !isNaN(p) && isFinite(p) && p > 0
+    (p) => typeof p === "number" && !isNaN(p) && isFinite(p) && (allowZero || p > 0)
   );
   let min = Infinity;
   let max = -Infinity;
@@ -166,8 +168,16 @@ function computeBounds(prices, width, height, paddingOrScale, scaleOpt) {
     max = 105;
   }
   if (min === max) {
-    min *= 0.98;
-    max *= 1.02;
+    if (min === 0) {
+      min = -1;
+      max = 1;
+    } else if (min > 0) {
+      min *= 0.98;
+      max *= 1.02;
+    } else {
+      min *= 1.02;
+      max *= 0.98;
+    }
   }
   const span = max - min;
   const pad = Math.max(span * 0.08, 0.5);
@@ -2804,6 +2814,38 @@ var VortexBarChart = ({
 // src/components/VortexLineChart.tsx
 var import_react9 = require("react");
 
+// src/utils/color.ts
+function colorWithAlpha(color, alpha) {
+  if (!color) return `rgba(56, 189, 248, ${alpha})`;
+  const a = Math.max(0, Math.min(1, alpha));
+  const trimmed = color.trim();
+  if (trimmed.startsWith("#")) {
+    let hex = trimmed.slice(1);
+    if (hex.length === 3) {
+      hex = hex.split("").map((c) => c + c).join("");
+    }
+    if (hex.length >= 6) {
+      const r = parseInt(hex.slice(0, 2), 16) || 0;
+      const g = parseInt(hex.slice(2, 4), 16) || 0;
+      const b = parseInt(hex.slice(4, 6), 16) || 0;
+      return `rgba(${r}, ${g}, ${b}, ${a})`;
+    }
+  }
+  if (trimmed.startsWith("rgb(")) {
+    return trimmed.replace("rgb(", "rgba(").replace(")", `, ${a})`);
+  }
+  if (trimmed.startsWith("rgba(")) {
+    return trimmed.replace(/,\s*[\d.]+\)$/, `, ${a})`);
+  }
+  if (trimmed.startsWith("hsl(")) {
+    return trimmed.replace("hsl(", "hsla(").replace(")", `, ${a})`);
+  }
+  if (trimmed.startsWith("hsla(")) {
+    return trimmed.replace(/,\s*[\d.]+\)$/, `, ${a})`);
+  }
+  return trimmed;
+}
+
 // src/engine/line-chart.ts
 function drawLineChart(ctx, data, bounds, options = {}) {
   if (!data || data.length === 0) return;
@@ -2826,10 +2868,12 @@ function drawLineChart(ctx, data, bounds, options = {}) {
   }
   if (points.length < 2) {
     if (points.length === 1) {
+      ctx.save();
       ctx.beginPath();
       ctx.arc(points[0].x, points[0].y, pointRadius + 2, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
+      ctx.restore();
     }
     return;
   }
@@ -2837,8 +2881,8 @@ function drawLineChart(ctx, data, bounds, options = {}) {
   if (showArea) {
     const bottomY = bounds.chartHeight - bounds.padding.bottom;
     const gradient = ctx.createLinearGradient(0, bounds.padding.top, 0, bottomY);
-    gradient.addColorStop(0, color.replace(")", `, ${areaTopOpacity})`).replace("rgb", "rgba"));
-    gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+    gradient.addColorStop(0, colorWithAlpha(color, areaTopOpacity));
+    gradient.addColorStop(1, colorWithAlpha(color, 0));
     ctx.beginPath();
     ctx.moveTo(points[0].x, bottomY);
     ctx.lineTo(points[0].x, points[0].y);
@@ -3249,13 +3293,51 @@ var import_react12 = require("react");
 function computeRenkoBricks(candles, brickSize = 1) {
   if (!candles || candles.length === 0 || brickSize <= 0) return [];
   const bricks = [];
-  let currentPrice = candles[0].close;
-  let lastBrickTop = currentPrice;
-  let lastBrickBottom = currentPrice - brickSize;
+  let refPrice = candles[0].close;
+  let lastBrickTop = refPrice;
+  let lastBrickBottom = refPrice;
   let lastDirectionUp = true;
+  let hasFirstBrick = false;
   for (let i = 1; i < candles.length; i++) {
     const price = candles[i].close;
     const time = candles[i].t;
+    if (!hasFirstBrick) {
+      while (price >= refPrice + brickSize) {
+        const open = refPrice;
+        const close = refPrice + brickSize;
+        bricks.push({
+          open,
+          close,
+          high: close,
+          low: open,
+          isUp: true,
+          t: time
+        });
+        lastBrickBottom = open;
+        lastBrickTop = close;
+        lastDirectionUp = true;
+        hasFirstBrick = true;
+        refPrice = close;
+      }
+      while (price <= refPrice - brickSize) {
+        const open = refPrice;
+        const close = refPrice - brickSize;
+        bricks.push({
+          open,
+          close,
+          high: open,
+          low: close,
+          isUp: false,
+          t: time
+        });
+        lastBrickTop = open;
+        lastBrickBottom = close;
+        lastDirectionUp = false;
+        hasFirstBrick = true;
+        refPrice = close;
+      }
+      continue;
+    }
     while (price >= lastBrickTop + brickSize) {
       const open = lastBrickTop;
       const close = lastBrickTop + brickSize;
@@ -3271,7 +3353,6 @@ function computeRenkoBricks(candles, brickSize = 1) {
       lastBrickTop = close;
       lastDirectionUp = true;
     }
-    const reversalThreshold = lastDirectionUp ? lastBrickBottom - brickSize : lastBrickBottom - brickSize;
     while (price <= lastBrickBottom - brickSize) {
       const open = lastBrickBottom;
       const close = lastBrickBottom - brickSize;
@@ -3927,6 +4008,8 @@ var VortexVolumeProfileChart = ({
   valueAreaRatio = 0.7,
   alignment = "right",
   showCandles = true,
+  upColor = "#10b981",
+  downColor = "#f43f5e",
   pocColor = "#eab308",
   valueAreaColor = "rgba(56, 189, 248, 0.4)",
   otherAreaColor = "rgba(100, 116, 139, 0.2)",
@@ -3957,8 +4040,8 @@ var VortexVolumeProfileChart = ({
     drawGridAndAxes(ctx, bounds);
     if (showCandles && data.length > 0) {
       drawCandlesticks(ctx, data, bounds, {
-        upColor: theme.colors?.bullish ?? "#10b981",
-        downColor: theme.colors?.bearish ?? "#f43f5e"
+        upColor: theme.colors?.bullish ?? upColor,
+        downColor: theme.colors?.bearish ?? downColor
       });
     }
     if (profile) {
@@ -3973,7 +4056,7 @@ var VortexVolumeProfileChart = ({
     if (showWatermark) {
       drawVortexWatermark(ctx, bounds);
     }
-  }, [containerWidth, height, bounds, data, profile, alignment, showCandles, pocColor, valueAreaColor, otherAreaColor, showWatermark, theme, canvasRef]);
+  }, [containerWidth, height, bounds, data, profile, alignment, showCandles, upColor, downColor, pocColor, valueAreaColor, otherAreaColor, showWatermark, theme, canvasRef]);
   const handlePointerMove = (e) => {
     if (!data || data.length === 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -4397,18 +4480,25 @@ function drawScatterPlot(ctx, points, bounds, scatterBounds, options = {}) {
       sumXY += p.x * p.y;
       sumXX += p.x * p.x;
     }
-    const slope = (n * sumXY - sumX * sumY) / Math.max(1e-4, n * sumXX - sumX * sumX);
-    const intercept = (sumY - slope * sumX) / n;
-    const x1 = minX;
-    const y1 = slope * x1 + intercept;
-    const x2 = maxX;
-    const y2 = slope * x2 + intercept;
+    const denom = n * sumXX - sumX * sumX;
     ctx.strokeStyle = trendLineColor;
     ctx.lineWidth = 1.5;
     ctx.setLineDash([4, 3]);
     ctx.beginPath();
-    ctx.moveTo(mapX(x1), mapY(y1));
-    ctx.lineTo(mapX(x2), mapY(y2));
+    if (Math.abs(denom) < 1e-5) {
+      const vx = mapX(points[0].x);
+      ctx.moveTo(vx, mapY(minY));
+      ctx.lineTo(vx, mapY(maxY));
+    } else {
+      const slope = (n * sumXY - sumX * sumY) / denom;
+      const intercept = (sumY - slope * sumX) / n;
+      const x1 = minX;
+      const y1 = slope * x1 + intercept;
+      const x2 = maxX;
+      const y2 = slope * x2 + intercept;
+      ctx.moveTo(mapX(x1), mapY(y1));
+      ctx.lineTo(mapX(x2), mapY(y2));
+    }
     ctx.stroke();
     ctx.setLineDash([]);
   }
@@ -4577,8 +4667,8 @@ function drawHeatmap(ctx, data, bounds, options = {}) {
     for (let r = 0; r < numRows; r++) {
       for (let c = 0; c < numCols; c++) {
         const val = values[r]?.[c] ?? 0;
-        if (val < min) min = val;
-        if (val > max) max = val;
+        if (data.minValue === void 0 && val < min) min = val;
+        if (data.maxValue === void 0 && val > max) max = val;
       }
     }
   }
@@ -4738,8 +4828,8 @@ function drawAreaChart(ctx, data, bounds, options = {}) {
   const bottomY = bounds.chartHeight - bounds.padding.bottom;
   ctx.save();
   const gradient = ctx.createLinearGradient(0, bounds.padding.top, 0, bottomY);
-  gradient.addColorStop(0, color.replace(")", `, ${gradientTopOpacity})`).replace("rgb", "rgba"));
-  gradient.addColorStop(1, color.replace(")", `, ${gradientBottomOpacity})`).replace("rgb", "rgba"));
+  gradient.addColorStop(0, colorWithAlpha(color, gradientTopOpacity));
+  gradient.addColorStop(1, colorWithAlpha(color, gradientBottomOpacity));
   ctx.beginPath();
   ctx.moveTo(points[0].x, bottomY);
   ctx.lineTo(points[0].x, points[0].y);
@@ -4856,7 +4946,7 @@ var import_react21 = require("react");
 // src/engine/box-plot.ts
 function computeBoxPlotStats(rawValues, label = "") {
   if (!rawValues || rawValues.length === 0) {
-    return { label, min: 0, q1: 0, median: 0, q3: 0, max: 0 };
+    return { label, min: 0, q1: 0, median: 0, q3: 0, max: 0, outliers: [] };
   }
   const sorted = [...rawValues].sort((a, b) => a - b);
   const n = sorted.length;
@@ -4987,7 +5077,7 @@ var VortexBoxPlot = ({
         allValues.push(...it.outliers);
       }
     });
-    return computeBounds(allValues, containerWidth, height);
+    return computeBounds(allValues, containerWidth, height, { allowZeroOrNegative: true });
   }, [normalizedItems, containerWidth, height]);
   (0, import_react21.useEffect)(() => {
     const canvas = canvasRef.current;
@@ -5131,11 +5221,12 @@ function drawWaterfallChart(ctx, bars, bounds, options = {}) {
     ctx.lineWidth = 1;
     ctx.strokeRect(leftX, yTop, barWidth, height);
     if (i > 0) {
+      const prevRightX = Math.round(indexToX(i - 1, count, bounds) + barWidth / 2);
       ctx.strokeStyle = connectorColor;
       ctx.lineWidth = 1;
       ctx.setLineDash([2, 2]);
       ctx.beginPath();
-      ctx.moveTo(leftX - (slotWidth - barWidth), prevY);
+      ctx.moveTo(prevRightX, prevY);
       ctx.lineTo(leftX, prevY);
       ctx.stroke();
       ctx.setLineDash([]);
@@ -5177,7 +5268,7 @@ var VortexWaterfallChart = ({
       }
       values.push(running);
     });
-    return computeBounds(values, containerWidth, height);
+    return computeBounds(values, containerWidth, height, { allowZeroOrNegative: true });
   }, [data, containerWidth, height]);
   (0, import_react22.useEffect)(() => {
     const canvas = canvasRef.current;
@@ -5227,9 +5318,9 @@ var VortexWaterfallChart = ({
         hovered && /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-3 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
           /* @__PURE__ */ (0, import_jsx_runtime20.jsx)("span", { className: "font-semibold text-white", children: hovered.label }),
           /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)("span", { children: [
-            "Delta: ",
-            /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)("strong", { className: hovered.value >= 0 ? "text-emerald-400" : "text-rose-400", children: [
-              hovered.value >= 0 ? "+" : "",
+            "Value: ",
+            /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)("strong", { className: hovered.isTotal ? "text-sky-400" : hovered.value >= 0 ? "text-emerald-400" : "text-rose-400", children: [
+              hovered.isTotal ? "" : hovered.value >= 0 ? "+" : "",
               "$",
               formatPrice(hovered.value)
             ] })
@@ -5308,7 +5399,7 @@ function drawRadarChart(ctx, dimensions, seriesList, bounds, options = {}) {
       else ctx.lineTo(x, y);
     }
     ctx.closePath();
-    ctx.fillStyle = color.replace(")", `, ${fillOpacity})`).replace("rgb", "rgba");
+    ctx.fillStyle = colorWithAlpha(color, fillOpacity);
     ctx.fill();
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
@@ -5769,6 +5860,7 @@ var VortexChoroplethMap = ({
   VortexVolumeProfileChart,
   VortexWaterfallChart,
   VortexWatermarkOverlay,
+  colorWithAlpha,
   computeBarBounds,
   computeBoxPlotStats,
   computeHeikinAshi,

@@ -78,8 +78,8 @@ export function drawHeatmap(
     for (let r = 0; r < numRows; r++) {
       for (let c = 0; c < numCols; c++) {
         const val = values[r]?.[c] ?? 0;
-        if (val < min) min = val;
-        if (val > max) max = val;
+        if (data.minValue === undefined && val < min) min = val;
+        if (data.maxValue === undefined && val > max) max = val;
       }
     }
   }

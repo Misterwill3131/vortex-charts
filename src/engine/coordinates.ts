@@ -26,6 +26,7 @@ export interface ChartBounds {
 export interface VerticalScaleOptions {
   factor?: number; // > 1 stretches candles vertically, < 1 compresses
   offset?: number; // shifts price axis window up/down
+  allowZeroOrNegative?: boolean; // preserves 0 and negative values for quantitative/waterfall charts
 }
 
 export function computeBounds(
@@ -39,15 +40,16 @@ export function computeBounds(
   let verticalScale: VerticalScaleOptions | undefined = scaleOpt;
 
   if (paddingOrScale) {
-    if ("factor" in paddingOrScale || "offset" in paddingOrScale) {
+    if ("factor" in paddingOrScale || "offset" in paddingOrScale || "allowZeroOrNegative" in paddingOrScale) {
       verticalScale = paddingOrScale as VerticalScaleOptions;
     } else {
       padding = paddingOrScale as ViewportPadding;
     }
   }
 
+  const allowZero = verticalScale?.allowZeroOrNegative ?? false;
   const validPrices = prices.filter(
-    (p) => typeof p === "number" && !isNaN(p) && isFinite(p) && p > 0
+    (p) => typeof p === "number" && !isNaN(p) && isFinite(p) && (allowZero || p > 0)
   );
 
   // Reduce instead of Math.min(...spread): spread arguments overflow the
@@ -64,8 +66,16 @@ export function computeBounds(
   }
 
   if (min === max) {
-    min *= 0.98;
-    max *= 1.02;
+    if (min === 0) {
+      min = -1;
+      max = 1;
+    } else if (min > 0) {
+      min *= 0.98;
+      max *= 1.02;
+    } else {
+      min *= 1.02;
+      max *= 0.98;
+    }
   }
 
   // Add 8% vertical padding

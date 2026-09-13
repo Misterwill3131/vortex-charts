@@ -53,7 +53,7 @@ export const VortexBoxPlot: React.FC<VortexBoxPlotProps> = ({
         allValues.push(...it.outliers);
       }
     });
-    return computeBounds(allValues, containerWidth, height);
+    return computeBounds(allValues, containerWidth, height, { allowZeroOrNegative: true });
   }, [normalizedItems, containerWidth, height]);
 
   useEffect(() => {

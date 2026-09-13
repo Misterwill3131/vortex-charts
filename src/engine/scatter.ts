@@ -101,20 +101,27 @@ export function drawScatterPlot(
       sumXY += p.x * p.y;
       sumXX += p.x * p.x;
     }
-    const slope = (n * sumXY - sumX * sumY) / Math.max(0.0001, n * sumXX - sumX * sumX);
-    const intercept = (sumY - slope * sumX) / n;
-
-    const x1 = minX;
-    const y1 = slope * x1 + intercept;
-    const x2 = maxX;
-    const y2 = slope * x2 + intercept;
-
+    const denom = n * sumXX - sumX * sumX;
     ctx.strokeStyle = trendLineColor;
     ctx.lineWidth = 1.5;
     ctx.setLineDash([4, 3]);
     ctx.beginPath();
-    ctx.moveTo(mapX(x1), mapY(y1));
-    ctx.lineTo(mapX(x2), mapY(y2));
+
+    if (Math.abs(denom) < 0.00001) {
+      const vx = mapX(points[0].x);
+      ctx.moveTo(vx, mapY(minY));
+      ctx.lineTo(vx, mapY(maxY));
+    } else {
+      const slope = (n * sumXY - sumX * sumY) / denom;
+      const intercept = (sumY - slope * sumX) / n;
+      const x1 = minX;
+      const y1 = slope * x1 + intercept;
+      const x2 = maxX;
+      const y2 = slope * x2 + intercept;
+      ctx.moveTo(mapX(x1), mapY(y1));
+      ctx.lineTo(mapX(x2), mapY(y2));
+    }
+
     ctx.stroke();
     ctx.setLineDash([]);
   }

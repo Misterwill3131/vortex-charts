@@ -28,18 +28,57 @@ export function computeRenkoBricks(
   if (!candles || candles.length === 0 || brickSize <= 0) return [];
 
   const bricks: RenkoBrick[] = [];
-  let currentPrice = candles[0].close;
-
-  // Initial reference brick
-  let lastBrickTop = currentPrice;
-  let lastBrickBottom = currentPrice - brickSize;
+  let refPrice = candles[0].close;
+  let lastBrickTop = refPrice;
+  let lastBrickBottom = refPrice;
   let lastDirectionUp = true;
+  let hasFirstBrick = false;
 
   for (let i = 1; i < candles.length; i++) {
     const price = candles[i].close;
     const time = candles[i].t;
 
-    // Uptrend continuation
+    if (!hasFirstBrick) {
+      // First brick determines initial direction symmetrically
+      while (price >= refPrice + brickSize) {
+        const open = refPrice;
+        const close = refPrice + brickSize;
+        bricks.push({
+          open,
+          close,
+          high: close,
+          low: open,
+          isUp: true,
+          t: time,
+        });
+        lastBrickBottom = open;
+        lastBrickTop = close;
+        lastDirectionUp = true;
+        hasFirstBrick = true;
+        refPrice = close;
+      }
+
+      while (price <= refPrice - brickSize) {
+        const open = refPrice;
+        const close = refPrice - brickSize;
+        bricks.push({
+          open,
+          close,
+          high: open,
+          low: close,
+          isUp: false,
+          t: time,
+        });
+        lastBrickTop = open;
+        lastBrickBottom = close;
+        lastDirectionUp = false;
+        hasFirstBrick = true;
+        refPrice = close;
+      }
+      continue;
+    }
+
+    // Uptrend continuation or reversal from downtrend
     while (price >= lastBrickTop + brickSize) {
       const open = lastBrickTop;
       const close = lastBrickTop + brickSize;
@@ -56,11 +95,7 @@ export function computeRenkoBricks(
       lastDirectionUp = true;
     }
 
-    // Downtrend continuation or reversal
-    const reversalThreshold = lastDirectionUp
-      ? lastBrickBottom - brickSize
-      : lastBrickBottom - brickSize;
-
+    // Downtrend continuation or reversal from uptrend
     while (price <= lastBrickBottom - brickSize) {
       const open = lastBrickBottom;
       const close = lastBrickBottom - brickSize;

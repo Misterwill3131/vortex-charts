@@ -1,4 +1,4 @@
-// Components — 19 Native Vortex Chart Models Suite
+// Components ï¿½ 19 Native Vortex Chart Models Suite
 export { VortexCandleChart, type VortexCandleChartProps } from "./components/VortexCandleChart";
 export { VortexRangeChart, type VortexRangeChartProps } from "./components/VortexRangeChart";
 export { VortexConeChart, type VortexConeChartProps } from "./components/VortexConeChart";
@@ -112,3 +112,4 @@ export type {
 
 // Utilities
 export { formatCandleTime, formatPrice } from "./utils/chart-defaults";
+export { colorWithAlpha } from "./utils/color";

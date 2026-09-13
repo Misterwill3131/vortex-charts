@@ -77,13 +77,13 @@ export function drawWaterfallChart(
     ctx.lineWidth = 1;
     ctx.strokeRect(leftX, yTop, barWidth, height);
 
-    // 2. Connector line from previous bar to current bar
     if (i > 0) {
+      const prevRightX = Math.round(indexToX(i - 1, count, bounds) + barWidth / 2);
       ctx.strokeStyle = connectorColor;
       ctx.lineWidth = 1;
       ctx.setLineDash([2, 2]);
       ctx.beginPath();
-      ctx.moveTo(leftX - (slotWidth - barWidth), prevY);
+      ctx.moveTo(prevRightX, prevY);
       ctx.lineTo(leftX, prevY);
       ctx.stroke();
       ctx.setLineDash([]);

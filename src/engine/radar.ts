@@ -1,4 +1,5 @@
 import type { ChartBounds } from "./coordinates";
+import { colorWithAlpha } from "../utils/color";
 
 export interface RadarDimension {
   name: string;
@@ -110,7 +111,7 @@ export function drawRadarChart(
     }
     ctx.closePath();
 
-    ctx.fillStyle = color.replace(")", `, ${fillOpacity})`).replace("rgb", "rgba");
+    ctx.fillStyle = colorWithAlpha(color, fillOpacity);
     ctx.fill();
 
     ctx.strokeStyle = color;

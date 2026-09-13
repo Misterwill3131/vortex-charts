@@ -1,5 +1,6 @@
 import type { ChartBounds } from "./coordinates";
 import { indexToX, priceToY } from "./coordinates";
+import { colorWithAlpha } from "../utils/color";
 
 export interface AreaDataPoint {
   x?: number;
@@ -50,8 +51,8 @@ export function drawAreaChart(
 
   // 1. Fill Area with gradient
   const gradient = ctx.createLinearGradient(0, bounds.padding.top, 0, bottomY);
-  gradient.addColorStop(0, color.replace(")", `, ${gradientTopOpacity})`).replace("rgb", "rgba"));
-  gradient.addColorStop(1, color.replace(")", `, ${gradientBottomOpacity})`).replace("rgb", "rgba"));
+  gradient.addColorStop(0, colorWithAlpha(color, gradientTopOpacity));
+  gradient.addColorStop(1, colorWithAlpha(color, gradientBottomOpacity));
 
   ctx.beginPath();
   ctx.moveTo(points[0].x, bottomY);

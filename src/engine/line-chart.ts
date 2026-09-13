@@ -1,5 +1,6 @@
 import type { ChartBounds } from "./coordinates";
 import { indexToX, priceToY } from "./coordinates";
+import { colorWithAlpha } from "../utils/color";
 
 export interface LineSeriesPoint {
   x?: number;
@@ -52,10 +53,12 @@ export function drawLineChart(
 
   if (points.length < 2) {
     if (points.length === 1) {
+      ctx.save();
       ctx.beginPath();
       ctx.arc(points[0].x, points[0].y, pointRadius + 2, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
+      ctx.restore();
     }
     return;
   }
@@ -66,8 +69,8 @@ export function drawLineChart(
   if (showArea) {
     const bottomY = bounds.chartHeight - bounds.padding.bottom;
     const gradient = ctx.createLinearGradient(0, bounds.padding.top, 0, bottomY);
-    gradient.addColorStop(0, color.replace(")", `, ${areaTopOpacity})`).replace("rgb", "rgba"));
-    gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+    gradient.addColorStop(0, colorWithAlpha(color, areaTopOpacity));
+    gradient.addColorStop(1, colorWithAlpha(color, 0.0));
 
     ctx.beginPath();
     ctx.moveTo(points[0].x, bottomY);
