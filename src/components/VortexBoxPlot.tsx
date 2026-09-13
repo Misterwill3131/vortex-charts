@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import { type VortexThemeOverride } from "../theme/tokens";
-import { computeBounds, type ChartBounds } from "../engine/coordinates";
+import { computeBounds, indexToX, priceToY, type ChartBounds } from "../engine/coordinates";
 import { drawGridAndAxes } from "../engine/grid";
 import { drawVortexWatermark } from "../engine/watermark";
 import { setupCanvasDpi } from "../engine/canvas";
 import { useChartSurface } from "../hooks/useChartSurface";
 import { computeBoxPlotStats, drawBoxPlot, type BoxPlotItem } from "../engine/box-plot";
+import { drawGenericCrosshair } from "../engine/interaction";
 import { formatPrice } from "../utils/chart-defaults";
 
 export type BoxPlotInputItem = BoxPlotItem | { label: string; values: number[] };
@@ -35,6 +36,7 @@ export const VortexBoxPlot: React.FC<VortexBoxPlotProps> = ({
 }) => {
   const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
 
   const normalizedItems: BoxPlotItem[] = useMemo(() => {
     return data.map((item) => {
@@ -79,13 +81,49 @@ export const VortexBoxPlot: React.FC<VortexBoxPlotProps> = ({
     }
   }, [containerWidth, height, bounds, normalizedItems, boxColor, medianColor, whiskerColor, outlierColor, showWatermark, theme, canvasRef]);
 
+  // 60 FPS overlay crosshair snapped to active box plot median
+  useEffect(() => {
+    const overlay = overlayRef.current;
+    if (!overlay) return;
+    const setup = setupCanvasDpi(overlay, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+
+    ctx.clearRect(0, 0, containerWidth, height);
+
+    if (hoverIndex !== null && normalizedItems[hoverIndex]) {
+      const it = normalizedItems[hoverIndex];
+      const snapX = indexToX(hoverIndex, normalizedItems.length, bounds);
+      const snapY = priceToY(it.median, bounds);
+
+      drawGenericCrosshair(ctx, bounds, {
+        mouseX: snapX,
+        mouseY: snapY,
+        snapX,
+        snapY,
+        xLabel: it.label,
+        yLabel: `Median: $${formatPrice(it.median)}`,
+        color: medianColor,
+        showSnapDot: true,
+      });
+    }
+  }, [overlayRef, containerWidth, height, bounds, hoverIndex, normalizedItems, medianColor]);
+
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!normalizedItems || normalizedItems.length === 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    setCursorPos({ x: mouseX, y: mouseY });
+
     const step = bounds.plotWidth / Math.max(1, normalizedItems.length);
     const idx = Math.max(0, Math.min(normalizedItems.length - 1, Math.floor((mouseX - bounds.padding.left) / step)));
     setHoverIndex(idx);
+  };
+
+  const handlePointerLeave = () => {
+    setHoverIndex(null);
+    setCursorPos(null);
   };
 
   const hovered = hoverIndex !== null ? normalizedItems[hoverIndex] : null;
@@ -99,23 +137,34 @@ export const VortexBoxPlot: React.FC<VortexBoxPlotProps> = ({
       <canvas
         ref={canvasRef}
         onPointerMove={handlePointerMove}
-        onPointerLeave={() => setHoverIndex(null)}
+        onPointerLeave={handlePointerLeave}
         className="block h-full w-full cursor-crosshair"
         style={{ touchAction: "none" }}
       />
       <canvas ref={overlayRef} className="pointer-events-none absolute inset-0 block" />
 
-      {hovered && (
-        <div className="pointer-events-none absolute top-2.5 left-3 z-20 flex flex-wrap items-center gap-2.5 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300">
-          <span className="font-semibold text-white">{hovered.label}:</span>
-          <span>Min: <strong className="text-zinc-400">${formatPrice(hovered.min)}</strong></span>
-          <span>Q1: <strong className="text-sky-400">${formatPrice(hovered.q1)}</strong></span>
-          <span>Median: <strong className="text-amber-400">${formatPrice(hovered.median)}</strong></span>
-          <span>Q3: <strong className="text-sky-400">${formatPrice(hovered.q3)}</strong></span>
-          <span>Max: <strong className="text-zinc-400">${formatPrice(hovered.max)}</strong></span>
-          {hovered.outliers && hovered.outliers.length > 0 && (
-            <span>Outliers: <strong className="text-rose-400">{hovered.outliers.length}</strong></span>
-          )}
+      {hovered && cursorPos && (
+        <div
+          className="pointer-events-none absolute z-30 flex flex-col gap-1.5 rounded-xl border border-white/15 bg-[#020616]/95 px-3.5 py-2.5 text-xs backdrop-blur-xl shadow-2xl font-mono text-zinc-300"
+          style={{
+            left: Math.min(containerWidth - 200, Math.max(10, cursorPos.x + 14)),
+            top: Math.min(height - 110, Math.max(10, cursorPos.y - 50)),
+          }}
+        >
+          <div className="flex items-center justify-between border-b border-white/10 pb-1">
+            <span className="font-semibold text-white">{hovered.label}</span>
+            <span className="text-[10px] text-amber-400 font-mono">Tukey 5-Pt</span>
+          </div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+            <div><span className="text-zinc-500">Max:</span> <strong className="text-white">${formatPrice(hovered.max)}</strong></div>
+            <div><span className="text-zinc-500">Q3:</span> <strong className="text-sky-300">${formatPrice(hovered.q3)}</strong></div>
+            <div><span className="text-zinc-500">Median:</span> <strong className="text-amber-400 font-bold">${formatPrice(hovered.median)}</strong></div>
+            <div><span className="text-zinc-500">Q1:</span> <strong className="text-sky-300">${formatPrice(hovered.q1)}</strong></div>
+            <div><span className="text-zinc-500">Min:</span> <strong className="text-white">${formatPrice(hovered.min)}</strong></div>
+            {hovered.outliers && hovered.outliers.length > 0 && (
+              <div><span className="text-zinc-500">Outliers:</span> <strong className="text-rose-400">{hovered.outliers.length}</strong></div>
+            )}
+          </div>
         </div>
       )}
     </div>

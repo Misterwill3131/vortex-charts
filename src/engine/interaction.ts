@@ -137,6 +137,133 @@ export function drawRemoteCrosshair(
   ctx.restore();
 }
 
+export interface GenericCrosshairOptions {
+  mouseX: number;
+  mouseY: number;
+  snapX?: number;
+  snapY?: number;
+  xLabel?: string;
+  yLabel?: string;
+  color?: string;
+  showSnapDot?: boolean;
+}
+
+/**
+ * Universal 60 FPS Canvas 2D overlay crosshair with magnetized snap dot,
+ * dynamic Y-axis price badge and X-axis timestamp/label badge.
+ */
+export function drawGenericCrosshair(
+  ctx: CanvasRenderingContext2D,
+  bounds: ChartBounds,
+  options: GenericCrosshairOptions
+): void {
+  const { chartWidth, chartHeight, padding } = bounds;
+  const rightAxisX = chartWidth - padding.right;
+  const bottomAxisY = chartHeight - padding.bottom;
+
+  const {
+    mouseX,
+    mouseY,
+    snapX = mouseX,
+    snapY = mouseY,
+    xLabel,
+    yLabel,
+    color = "#38bdf8",
+    showSnapDot = true,
+  } = options;
+
+  if (snapX < padding.left || snapX > rightAxisX || snapY < padding.top || snapY > bottomAxisY) {
+    return;
+  }
+
+  ctx.save();
+  ctx.setLineDash([3, 3]);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+  ctx.lineWidth = 1;
+
+  // 1. Vertical Line
+  ctx.beginPath();
+  ctx.moveTo(Math.round(snapX) + 0.5, padding.top);
+  ctx.lineTo(Math.round(snapX) + 0.5, bottomAxisY);
+  ctx.stroke();
+
+  // 2. Horizontal Line
+  ctx.beginPath();
+  ctx.moveTo(padding.left, Math.round(snapY) + 0.5);
+  ctx.lineTo(rightAxisX, Math.round(snapY) + 0.5);
+  ctx.stroke();
+
+  ctx.setLineDash([]);
+
+  // 3. Snap Dot with halo
+  if (showSnapDot) {
+    ctx.beginPath();
+    ctx.arc(snapX, snapY, 7, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(56, 189, 248, 0.25)";
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(snapX, snapY, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  // 4. Y-axis badge
+  if (yLabel) {
+    ctx.font = "bold 10px Inter, monospace";
+    const textW = measureTextWidth(ctx, yLabel);
+    const pillW = textW + 10;
+    const pillH = 16;
+    const pillX = rightAxisX + 4;
+    const pillY = Math.round(snapY - pillH / 2);
+
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(pillX, pillY, pillW, pillH, 3);
+    } else {
+      ctx.rect(pillX, pillY, pillW, pillH);
+    }
+    ctx.fill();
+
+    ctx.fillStyle = "#020616";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(yLabel, pillX + pillW / 2, pillY + pillH / 2);
+  }
+
+  // 5. X-axis badge
+  if (xLabel) {
+    ctx.font = "10px Inter, monospace";
+    const timeW = measureTextWidth(ctx, xLabel) + 12;
+    const timeH = 16;
+    const timeX = Math.round(snapX - timeW / 2);
+    const timeY = bottomAxisY + 4;
+
+    ctx.fillStyle = "#1e293b";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(timeX, timeY, timeW, timeH, 3);
+    } else {
+      ctx.rect(timeX, timeY, timeW, timeH);
+    }
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#f1f5f9";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(xLabel, timeX + timeW / 2, timeY + timeH / 2);
+  }
+
+  ctx.restore();
+}
+
 /**
  * Formats a raw volume count into readable shorthand (e.g. 1.45M, 240K).
  */

@@ -60,7 +60,7 @@ export {
   type BarDatum,
   type BarReferenceLine,
 } from "./engine/bars";
-export { formatChange, formatVolume } from "./engine/interaction";
+export { formatChange, formatVolume, drawCrosshair, drawGenericCrosshair, type GenericCrosshairOptions } from "./engine/interaction";
 
 // New Pure Canvas 2D Renderers & Quantitative Algorithms
 export { drawLineChart, type LineSeriesPoint, type DrawLineOptions } from "./engine/line-chart";
