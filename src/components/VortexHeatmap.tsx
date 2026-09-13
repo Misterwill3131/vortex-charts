@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+ï»¿import React, { useEffect, useMemo, useState } from "react";
 import { type VortexThemeOverride } from "../theme/tokens";
 import { computeBounds, type ChartBounds } from "../engine/coordinates";
 import { drawVortexWatermark } from "../engine/watermark";
@@ -23,7 +23,7 @@ export const VortexHeatmap: React.FC<VortexHeatmapProps> = ({
   className = "",
   colorScale = "vortex",
   showValues = true,
-  cellPadding = 2,
+  cellPadding = 2.5,
   showWatermark = true,
   theme = {},
 }) => {
@@ -48,12 +48,13 @@ export const VortexHeatmap: React.FC<VortexHeatmapProps> = ({
       colorScale,
       showValues,
       cellPadding,
+      hoveredCell: hoveredCell ? { row: hoveredCell.row, col: hoveredCell.col } : null,
     });
 
     if (showWatermark) {
       drawVortexWatermark(ctx, bounds);
     }
-  }, [containerWidth, height, bounds, data, colorScale, showValues, cellPadding, showWatermark, theme, canvasRef]);
+  }, [containerWidth, height, bounds, data, colorScale, showValues, cellPadding, hoveredCell, showWatermark, theme, canvasRef]);
 
   const numCols = data.xLabels.length;
   const numRows = data.yLabels.length;
@@ -64,9 +65,9 @@ export const VortexHeatmap: React.FC<VortexHeatmapProps> = ({
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
-    const left = bounds.padding.left + 20;
+    const left = bounds.padding.left;
     const top = bounds.padding.top;
-    const plotW = bounds.plotWidth - 20;
+    const plotW = bounds.plotWidth;
     const plotH = bounds.plotHeight;
 
     if (mouseX < left || mouseX > left + plotW || mouseY < top || mouseY > top + plotH) {
@@ -101,11 +102,12 @@ export const VortexHeatmap: React.FC<VortexHeatmapProps> = ({
       <canvas ref={overlayRef} className="pointer-events-none absolute inset-0 block" />
 
       {hoveredCell && (
-        <div className="pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-3 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300">
+        <div className="pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-2 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300">
           <span className="text-zinc-400 font-semibold">{data.yLabels[hoveredCell.row] || `Row ${hoveredCell.row + 1}`}</span>
-          <span className="text-zinc-500">×</span>
+          <span className="text-zinc-500">x</span>
           <span className="text-white font-semibold">{data.xLabels[hoveredCell.col] || `Col ${hoveredCell.col + 1}`}</span>
-          <span>Value: <strong className="text-sky-400">{hoveredCell.val.toFixed(2)}</strong></span>
+          <span className="text-zinc-500">|</span>
+          <span>Correlation: <strong className="text-sky-400">{hoveredCell.val.toFixed(2)}</strong></span>
         </div>
       )}
     </div>

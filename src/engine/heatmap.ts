@@ -12,26 +12,26 @@ export interface DrawHeatmapOptions {
   colorScale?: "vortex" | "coolwarm" | "emerald";
   showValues?: boolean;
   cellPadding?: number;
+  borderRadius?: number;
+  hoveredCell?: { row: number; col: number } | null;
 }
 
 /**
- * Interpolates color between stops based on normalized ratio 0..1
+ * Returns [r, g, b, a] for given normalized ratio
  */
-function interpolateColor(ratio: number, scale: "vortex" | "coolwarm" | "emerald"): string {
+function getRgba(ratio: number, scale: "vortex" | "coolwarm" | "emerald"): [number, number, number, number] {
   const r = Math.max(0, Math.min(1, ratio));
 
   if (scale === "coolwarm") {
-    // Red (0) to Blue (1)
     const red = Math.round(244 * (1 - r) + 56 * r);
     const green = Math.round(63 * (1 - r) + 189 * r);
     const blue = Math.round(94 * (1 - r) + 248 * r);
-    return `rgba(${red}, ${green}, ${blue}, 0.85)`;
+    return [red, green, blue, 0.85];
   }
 
   if (scale === "emerald") {
-    // Dark to vibrant emerald
-    const alpha = 0.15 + r * 0.8;
-    return `rgba(16, 185, 129, ${alpha})`;
+    const alpha = 0.15 + r * 0.85;
+    return [16, 185, 129, alpha];
   }
 
   // Default "vortex": Obsidian Dark -> Cyan -> Electric Emerald
@@ -40,13 +40,13 @@ function interpolateColor(ratio: number, scale: "vortex" | "coolwarm" | "emerald
     const red = Math.round(15 * (1 - t) + 56 * t);
     const green = Math.round(23 * (1 - t) + 189 * t);
     const blue = Math.round(42 * (1 - t) + 248 * t);
-    return `rgba(${red}, ${green}, ${blue}, ${0.2 + t * 0.6})`;
+    return [red, green, blue, 0.25 + t * 0.65];
   } else {
     const t = (r - 0.5) * 2;
     const red = Math.round(56 * (1 - t) + 16 * t);
     const green = Math.round(189 * (1 - t) + 185 * t);
     const blue = Math.round(248 * (1 - t) + 129 * t);
-    return `rgba(${red}, ${green}, ${blue}, ${0.8 + t * 0.2})`;
+    return [red, green, blue, 0.85 + t * 0.15];
   }
 }
 
@@ -65,7 +65,9 @@ export function drawHeatmap(
   const {
     colorScale = "vortex",
     showValues = true,
-    cellPadding = 2,
+    cellPadding = 2.5,
+    borderRadius = 4,
+    hoveredCell = null,
   } = options;
 
   const numRows = yLabels.length;
@@ -90,7 +92,7 @@ export function drawHeatmap(
   const cellHeight = bounds.plotHeight / numRows;
 
   ctx.save();
-  ctx.font = "10px Inter, sans-serif";
+  ctx.font = "bold 10px Inter, monospace";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
@@ -99,23 +101,42 @@ export function drawHeatmap(
     for (let c = 0; c < numCols; c++) {
       const val = values[r]?.[c] ?? 0;
       const norm = (val - min) / range;
-      const color = interpolateColor(norm, colorScale);
+      const [cr, cg, cb, ca] = getRgba(norm, colorScale);
 
       const x = bounds.padding.left + c * cellWidth + cellPadding;
       const y = bounds.padding.top + r * cellHeight + cellPadding;
       const w = Math.max(1, cellWidth - cellPadding * 2);
       const h = Math.max(1, cellHeight - cellPadding * 2);
 
-      ctx.fillStyle = color;
-      ctx.fillRect(x, y, w, h);
+      const isHovered = hoveredCell && hoveredCell.row === r && hoveredCell.col === c;
 
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x, y, w, h);
+      ctx.beginPath();
+      if (typeof ctx.roundRect === "function") {
+        ctx.roundRect(x, y, w, h, borderRadius);
+      } else {
+        ctx.rect(x, y, w, h);
+      }
 
-      // Numerical label
-      if (showValues && w >= 24 && h >= 14) {
-        ctx.fillStyle = norm > 0.65 ? "#ffffff" : "rgba(255, 255, 255, 0.75)";
+      ctx.fillStyle = `rgba(${cr}, ${cg}, ${cb}, ${ca})`;
+      ctx.fill();
+
+      if (isHovered) {
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.shadowColor = "#ffffff";
+        ctx.shadowBlur = 8;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      } else {
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.07)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      // Perceptual luminance calculation for high-contrast typography
+      if (showValues && w >= 22 && h >= 14) {
+        const luminance = (0.299 * cr + 0.587 * cg + 0.114 * cb) * ca;
+        ctx.fillStyle = luminance > 125 ? "#020616" : "#ffffff";
         ctx.fillText(val.toFixed(2), x + w / 2, y + h / 2);
       }
     }
@@ -123,12 +144,12 @@ export function drawHeatmap(
 
   // 2. Draw Column (X) and Row (Y) labels
   ctx.fillStyle = "#94a3b8";
-  ctx.font = "9px Inter, monospace";
+  ctx.font = "10px Inter, sans-serif";
 
-  // X labels at top or bottom
+  // X labels at bottom
   for (let c = 0; c < numCols; c++) {
     const x = bounds.padding.left + c * cellWidth + cellWidth / 2;
-    const y = bounds.chartHeight - bounds.padding.bottom + 12;
+    const y = bounds.chartHeight - bounds.padding.bottom + 14;
     ctx.fillText(xLabels[c] ?? "", x, y);
   }
 

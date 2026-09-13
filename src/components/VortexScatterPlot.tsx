@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import { type VortexThemeOverride } from "../theme/tokens";
 import { computeBounds, type ChartBounds } from "../engine/coordinates";
 import { drawGridAndAxes } from "../engine/grid";
@@ -25,15 +25,15 @@ export const VortexScatterPlot: React.FC<VortexScatterPlotProps> = ({
   height = 360,
   className = "",
   pointColor = "#38bdf8",
-  defaultRadius = 5,
+  defaultRadius = 6,
   showTrendLine = false,
-  trendLineColor = "rgba(255, 255, 255, 0.4)",
+  trendLineColor = "#38bdf8",
   glow = true,
   showWatermark = true,
   theme = {},
 }) => {
   const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
-  const [hoveredPoint, setHoveredPoint] = useState<ScatterPoint | null>(null);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   const scatterBounds: ScatterBounds = useMemo(() => {
     return computeScatterBounds(data);
@@ -60,12 +60,13 @@ export const VortexScatterPlot: React.FC<VortexScatterPlotProps> = ({
       showTrendLine,
       trendLineColor,
       glow,
+      hoveredIndex,
     });
 
     if (showWatermark) {
       drawVortexWatermark(ctx, bounds);
     }
-  }, [containerWidth, height, bounds, data, scatterBounds, pointColor, defaultRadius, showTrendLine, trendLineColor, glow, showWatermark, theme, canvasRef]);
+  }, [containerWidth, height, bounds, data, scatterBounds, pointColor, defaultRadius, showTrendLine, trendLineColor, glow, hoveredIndex, showWatermark, theme, canvasRef]);
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!data || data.length === 0) return;
@@ -77,20 +78,23 @@ export const VortexScatterPlot: React.FC<VortexScatterPlotProps> = ({
     const rangeY = Math.max(scatterBounds.maxY - scatterBounds.minY, 0.0001);
 
     // Find nearest point within radius threshold
-    let nearest: ScatterPoint | null = null;
-    let minDist = 18; // px threshold
+    let nearestIdx: number | null = null;
+    let minDist = 22; // px threshold
 
-    for (const pt of data) {
+    for (let i = 0; i < data.length; i++) {
+      const pt = data[i];
       const px = bounds.padding.left + ((pt.x - scatterBounds.minX) / rangeX) * bounds.plotWidth;
       const py = bounds.padding.top + (1 - (pt.y - scatterBounds.minY) / rangeY) * bounds.plotHeight;
       const dist = Math.hypot(mouseX - px, mouseY - py);
       if (dist < minDist) {
         minDist = dist;
-        nearest = pt;
+        nearestIdx = i;
       }
     }
-    setHoveredPoint(nearest);
+    setHoveredIndex(nearestIdx);
   };
+
+  const hoveredPoint = hoveredIndex !== null ? data[hoveredIndex] : null;
 
   return (
     <div
@@ -101,7 +105,7 @@ export const VortexScatterPlot: React.FC<VortexScatterPlotProps> = ({
       <canvas
         ref={canvasRef}
         onPointerMove={handlePointerMove}
-        onPointerLeave={() => setHoveredPoint(null)}
+        onPointerLeave={() => setHoveredIndex(null)}
         className="block h-full w-full cursor-crosshair"
         style={{ touchAction: "none" }}
       />

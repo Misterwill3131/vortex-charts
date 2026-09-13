@@ -160,10 +160,10 @@ export function drawVolumeProfile(
 
   const {
     alignment = "right",
-    widthRatio = 0.28,
+    widthRatio = 0.32,
     pocColor = "#eab308",
-    valueAreaColor = "rgba(56, 189, 248, 0.4)",
-    otherAreaColor = "rgba(100, 116, 139, 0.2)",
+    valueAreaColor = "rgba(56, 189, 248, 0.45)",
+    otherAreaColor = "rgba(100, 116, 139, 0.22)",
     showLines = true,
   } = options;
 
@@ -175,7 +175,7 @@ export function drawVolumeProfile(
 
   ctx.save();
 
-  // 1. Draw horizontal bars
+  // 1. Draw horizontal bars with rounded tips
   for (const bin of profile.bins) {
     const yTop = Math.round(priceToY(bin.priceTop, bounds));
     const yBottom = Math.round(priceToY(bin.priceBottom, bounds));
@@ -191,25 +191,42 @@ export function drawVolumeProfile(
       : otherAreaColor;
 
     ctx.fillRect(x, yTop, barWidth, barHeight);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+    ctx.lineWidth = 1;
+    if (typeof ctx.strokeRect === "function") {
+      ctx.strokeRect(x, yTop, barWidth, barHeight);
+    }
   }
 
   // 2. Draw key levels (POC, VAH, VAL)
   if (showLines) {
-    // POC Line
+    // POC Line with neon glow
     const yPoc = Math.round(priceToY(profile.pocPrice, bounds));
     ctx.strokeStyle = pocColor;
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([4, 2]);
+    ctx.lineWidth = 2;
+    ctx.shadowColor = pocColor;
+    ctx.shadowBlur = 8;
+    ctx.setLineDash([5, 3]);
     ctx.beginPath();
     ctx.moveTo(bounds.padding.left, yPoc);
     ctx.lineTo(bounds.padding.left + bounds.plotWidth, yPoc);
     ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // POC Badge tag
+    ctx.fillStyle = pocColor;
+    ctx.fillRect(bounds.padding.left + bounds.plotWidth + 2, yPoc - 7, 54, 14);
+    ctx.fillStyle = "#020616";
+    ctx.font = "bold 9px Inter, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(`POC ${profile.pocPrice.toFixed(1)}`, bounds.padding.left + bounds.plotWidth + 29, yPoc);
 
     // VAH Line
     const yVah = Math.round(priceToY(profile.vahPrice, bounds));
     ctx.strokeStyle = "#38bdf8";
     ctx.lineWidth = 1;
-    ctx.setLineDash([2, 2]);
+    ctx.setLineDash([3, 3]);
     ctx.beginPath();
     ctx.moveTo(bounds.padding.left, yVah);
     ctx.lineTo(bounds.padding.left + bounds.plotWidth, yVah);

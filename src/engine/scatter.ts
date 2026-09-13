@@ -1,4 +1,5 @@
 import type { ChartBounds } from "./coordinates";
+import { colorWithAlpha } from "../utils/color";
 
 export interface ScatterPoint {
   x: number;
@@ -14,6 +15,7 @@ export interface DrawScatterOptions {
   showTrendLine?: boolean;
   trendLineColor?: string;
   glow?: boolean;
+  hoveredIndex?: number | null;
 }
 
 export interface ScatterBounds {
@@ -44,14 +46,14 @@ export function computeScatterBounds(points: ScatterPoint[]): ScatterBounds {
   if (!isFinite(minY)) minY = 0;
   if (!isFinite(maxY)) maxY = 100;
 
-  // Add 8% padding
+  // Add 10% padding
   const spanX = Math.max(maxX - minX, 1);
   const spanY = Math.max(maxY - minY, 1);
   return {
-    minX: minX - spanX * 0.08,
-    maxX: maxX + spanX * 0.08,
-    minY: minY - spanY * 0.08,
-    maxY: maxY + spanY * 0.08,
+    minX: minX - spanX * 0.1,
+    maxX: maxX + spanX * 0.1,
+    minY: minY - spanY * 0.1,
+    maxY: maxY + spanY * 0.1,
   };
 }
 
@@ -69,10 +71,11 @@ export function drawScatterPlot(
 
   const {
     pointColor = "#38bdf8",
-    defaultRadius = 5,
+    defaultRadius = 6,
     showTrendLine = false,
-    trendLineColor = "rgba(255, 255, 255, 0.4)",
+    trendLineColor = "#38bdf8",
     glow = true,
+    hoveredIndex = null,
   } = options;
 
   const { minX, maxX, minY, maxY } = scatterBounds;
@@ -91,7 +94,7 @@ export function drawScatterPlot(
 
   ctx.save();
 
-  // 1. Optional linear regression trendline
+  // 1. Optional linear regression trendline with neon glow
   if (showTrendLine && points.length >= 2) {
     let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
     const n = points.length;
@@ -104,6 +107,8 @@ export function drawScatterPlot(
     const denom = n * sumXX - sumX * sumX;
     ctx.strokeStyle = trendLineColor;
     ctx.lineWidth = 1.5;
+    ctx.shadowColor = trendLineColor;
+    ctx.shadowBlur = 6;
     ctx.setLineDash([4, 3]);
     ctx.beginPath();
 
@@ -124,28 +129,66 @@ export function drawScatterPlot(
 
     ctx.stroke();
     ctx.setLineDash([]);
+    ctx.shadowBlur = 0;
   }
 
   // 2. Draw Points / Bubbles
-  if (glow) {
-    ctx.shadowColor = pointColor;
-    ctx.shadowBlur = 6;
-  }
-
-  for (const p of points) {
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
     const px = mapX(p.x);
     const py = mapY(p.y);
-    const radius = p.size ? Math.max(2, p.size) : defaultRadius;
+    const radius = p.size ? Math.max(3, p.size) : defaultRadius;
     const color = p.color || pointColor;
+    const isHovered = hoveredIndex === i;
+
+    // Projected guide lines if hovered
+    if (isHovered) {
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 2]);
+
+      // Down to X axis
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px, bounds.chartHeight - bounds.padding.bottom);
+      ctx.stroke();
+
+      // Right to Y axis
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(bounds.chartWidth - bounds.padding.right, py);
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+
+      // Glow halo
+      ctx.beginPath();
+      ctx.arc(px, py, radius + 6, 0, Math.PI * 2);
+      ctx.fillStyle = colorWithAlpha(color, 0.25);
+      ctx.fill();
+    }
 
     ctx.beginPath();
-    ctx.arc(px, py, radius, 0, Math.PI * 2);
+    ctx.arc(px, py, isHovered ? radius + 1.5 : radius, 0, Math.PI * 2);
     ctx.fillStyle = color;
+    if (glow) {
+      ctx.shadowColor = color;
+      ctx.shadowBlur = isHovered ? 12 : 6;
+    }
     ctx.fill();
+    ctx.shadowBlur = 0;
 
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = isHovered ? "#ffffff" : "rgba(255, 255, 255, 0.5)";
+    ctx.lineWidth = isHovered ? 2 : 1;
     ctx.stroke();
+
+    // Bubble label
+    if (p.label) {
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 9px Inter, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(p.label, px, py - radius - 4);
+    }
   }
 
   ctx.restore();

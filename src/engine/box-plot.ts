@@ -1,5 +1,6 @@
 import type { ChartBounds } from "./coordinates";
 import { indexToX, priceToY } from "./coordinates";
+import { colorWithAlpha } from "../utils/color";
 
 export interface BoxPlotItem {
   label: string;
@@ -76,7 +77,7 @@ export function drawBoxPlot(
   if (!data || data.length === 0) return;
 
   const {
-    boxColor = "rgba(56, 189, 248, 0.25)",
+    boxColor = "#38bdf8",
     medianColor = "#eab308",
     whiskerColor = "#94a3b8",
     outlierColor = "#f43f5e",
@@ -84,8 +85,8 @@ export function drawBoxPlot(
 
   const count = data.length;
   const slotWidth = bounds.plotWidth / Math.max(1, count);
-  const boxWidth = Math.max(12, Math.min(60, slotWidth * 0.55));
-  const whiskerCapWidth = boxWidth * 0.5;
+  const boxWidth = Math.max(14, Math.min(64, slotWidth * 0.55));
+  const whiskerCapWidth = boxWidth * 0.55;
 
   ctx.save();
 
@@ -120,31 +121,52 @@ export function drawBoxPlot(
     ctx.lineTo(centerX + whiskerCapWidth / 2, yMax);
     ctx.stroke();
 
-    // 2. Interquartile Range (IQR) Box (Q1 to Q3)
+    // 2. Interquartile Range (IQR) Box with frosted glass gradient
     const boxHeight = Math.max(2, yQ1 - yQ3);
-    ctx.fillStyle = boxColor;
+    if (typeof ctx.createLinearGradient === "function") {
+      const boxGradient = ctx.createLinearGradient(0, yQ3, 0, yQ1);
+      boxGradient.addColorStop(0, colorWithAlpha(boxColor, 0.35));
+      boxGradient.addColorStop(1, colorWithAlpha(boxColor, 0.15));
+      ctx.fillStyle = boxGradient;
+    } else {
+      ctx.fillStyle = colorWithAlpha(boxColor, 0.25);
+    }
     ctx.fillRect(leftX, yQ3, boxWidth, boxHeight);
 
-    ctx.strokeStyle = "#38bdf8";
+    ctx.strokeStyle = boxColor;
     ctx.lineWidth = 1.5;
-    ctx.strokeRect(leftX, yQ3, boxWidth, boxHeight);
+    if (typeof ctx.strokeRect === "function") {
+      ctx.strokeRect(leftX, yQ3, boxWidth, boxHeight);
+    }
 
-    // 3. Median Line
+    // 3. Median Line with glow
+    ctx.shadowColor = medianColor;
+    ctx.shadowBlur = 6;
     ctx.strokeStyle = medianColor;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.moveTo(leftX, yMedian);
     ctx.lineTo(leftX + boxWidth, yMedian);
     ctx.stroke();
+    ctx.shadowBlur = 0;
 
-    // 4. Outliers (dots)
+    // 4. Outliers (luminous dots)
     if (item.outliers && item.outliers.length > 0) {
-      ctx.fillStyle = outlierColor;
       for (const out of item.outliers) {
         const yOut = Math.round(priceToY(out, bounds));
+        
+        ctx.beginPath();
+        ctx.arc(centerX, yOut, 6, 0, Math.PI * 2);
+        ctx.fillStyle = colorWithAlpha(outlierColor, 0.25);
+        ctx.fill();
+
         ctx.beginPath();
         ctx.arc(centerX, yOut, 3, 0, Math.PI * 2);
+        ctx.fillStyle = outlierColor;
         ctx.fill();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 1;
+        ctx.stroke();
       }
     }
 

@@ -36,7 +36,7 @@ export function drawPieChart(
 
   const centerX = bounds.chartWidth / 2;
   const centerY = bounds.chartHeight / 2;
-  const outerRadius = Math.min(bounds.plotWidth, bounds.plotHeight) / 2 - 20;
+  const outerRadius = Math.min(bounds.plotWidth, bounds.plotHeight) / 2 - 24;
   const innerRadius = outerRadius * donutHole;
 
   if (outerRadius <= 10) return;
@@ -62,9 +62,9 @@ export function drawPieChart(
     const endAngle = startAngle + sliceAngle;
     const isHovered = hoverIndex === i;
 
-    // Slight radial offset if hovered
+    // Radial offset for hovered slice
     const midAngle = startAngle + sliceAngle / 2;
-    const offset = isHovered ? 8 : 0;
+    const offset = isHovered ? 10 : 0;
     const cx = centerX + Math.cos(midAngle) * offset;
     const cy = centerY + Math.sin(midAngle) * offset;
 
@@ -82,25 +82,61 @@ export function drawPieChart(
     ctx.fillStyle = color;
     ctx.fill();
 
-    ctx.strokeStyle = borderColor;
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    if (isHovered) {
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 12;
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    } else {
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
 
-    // Text labels if angle is large enough (> 12 degrees)
-    if (showLabels && sliceAngle > 0.2) {
+    // Text labels if slice angle is wide enough
+    if (showLabels && sliceAngle > 0.22) {
       const labelRadius = (innerRadius + outerRadius) / 2;
       const lx = cx + Math.cos(midAngle) * labelRadius;
       const ly = cy + Math.sin(midAngle) * labelRadius;
       const percent = Math.round((val / total) * 100);
 
       ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 10px Inter, sans-serif";
+      ctx.font = "bold 11px Inter, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(`${percent}%`, lx, ly);
     }
 
     startAngle = endAngle;
+  }
+
+  // Draw central donut metrics info if donutHole >= 0.35
+  if (innerRadius >= 30) {
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    if (hoverIndex !== null && slices[hoverIndex]) {
+      const hSlice = slices[hoverIndex];
+      const hPercent = Math.round((Math.max(0, hSlice.value) / total) * 100);
+      
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 16px Inter, sans-serif";
+      ctx.fillText(`${hPercent}%`, centerX, centerY - 6);
+
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "10px Inter, sans-serif";
+      ctx.fillText(hSlice.label, centerX, centerY + 12);
+    } else {
+      ctx.fillStyle = "#38bdf8";
+      ctx.font = "bold 14px Inter, sans-serif";
+      ctx.fillText("100%", centerX, centerY - 5);
+
+      ctx.fillStyle = "#64748b";
+      ctx.font = "9px Inter, sans-serif";
+      ctx.fillText("PORTFOLIO", centerX, centerY + 10);
+    }
   }
 
   ctx.restore();
