@@ -8,6 +8,8 @@ import type { HoverState } from "../engine/interaction";
 
 const INACTIVE_RULER: RulerState = { active: false, startPoint: null, currentPoint: null };
 
+export type ChartHoverZone = "plot" | "yAxis" | "xAxis";
+
 export interface UseChartPointerOptions {
   /** Main canvas (receives the pointer events) */
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -33,16 +35,34 @@ export interface UseChartPointerOptions {
   viewport?: ViewportState;
   /** Viewport setter — required when panZoom is enabled */
   onViewportChange?: (viewport: ViewportState) => void;
+  /** Current vertical price scale factor (from useChartViewport) */
+  priceScaleRatio?: number;
+  /** Setter for vertical price scale factor */
+  onPriceScaleRatioChange?: (ratio: number) => void;
+  /** Reset callback for vertical price scale */
+  onResetPriceScale?: () => void;
+  /** Reset callback for horizontal zoom */
+  onReset?: () => void;
+}
+
+type DragMode = "none" | "pan" | "scaleY" | "scaleX";
+
+interface DragState {
+  mode: DragMode;
+  startX: number;
+  startY: number;
+  initialViewport: ViewportState;
+  initialPriceScaleRatio: number;
 }
 
 /**
- * Centralizes pointer-driven interaction: hover crosshair state, ruler
- * measurement, drag panning and wheel zooming.
- *
- * - Uses Pointer Events (mouse, touch and pen in a single API).
- * - Coalesces hover / ruler / pan updates through requestAnimationFrame so
- *   at most one state update per display frame reaches React.
- * - Snaps hover to candle centers (magnetized crosshair).
+ * Centralizes pointer-driven interaction:
+ * - Hover crosshair state with magnetized candle snap
+ * - Ruler measurement (Shift+drag or toolbar)
+ * - Independent X-axis (Time) scaling via left-click drag & mouse wheel
+ * - Independent Y-axis (Price) scaling via left-click drag & mouse wheel
+ * - Viewport pan and zoom in the plot area
+ * - Double-click auto-fit reset (targeted per axis or global)
  */
 export function useChartPointer({
   canvasRef,
@@ -54,21 +74,44 @@ export function useChartPointer({
   panZoom = false,
   viewport,
   onViewportChange,
+  priceScaleRatio: externalPriceRatio,
+  onPriceScaleRatioChange,
+  onResetPriceScale,
+  onReset,
 }: UseChartPointerOptions) {
   const [hover, setHover] = useState<HoverState | null>(null);
+  const [hoverZone, setHoverZone] = useState<ChartHoverZone>("plot");
+  const [internalRatio, setInternalRatio] = useState<number>(1.0);
   const [ruler, setRuler] = useState<RulerState>(INACTIVE_RULER);
   const [isRulerToolActive, setIsRulerToolActive] = useState<boolean>(false);
 
+  const priceScaleRatio = externalPriceRatio ?? internalRatio;
+  const updatePriceRatio = useCallback(
+    (next: number) => {
+      if (onPriceScaleRatioChange) {
+        onPriceScaleRatioChange(next);
+      } else {
+        setInternalRatio(next);
+      }
+    },
+    [onPriceScaleRatioChange]
+  );
+
   const rafRef = useRef<number>(0);
-  const dragRef = useRef<{ isDragging: boolean; startX: number; initialViewport: ViewportState }>({
-    isDragging: false,
-    startX: 0,
-    initialViewport: createInitialViewport(),
-  });
+  const priceScaleRatioRef = useRef<number>(1.0);
+  priceScaleRatioRef.current = priceScaleRatio;
 
   function createInitialViewport(): ViewportState {
     return viewport ?? { startIndex: 0, endIndex: 0, totalCount: 0, minVisible: 1 };
   }
+
+  const dragRef = useRef<DragState>({
+    mode: "none",
+    startX: 0,
+    startY: 0,
+    initialViewport: createInitialViewport(),
+    initialPriceScaleRatio: 1.0,
+  });
 
   const schedule = useCallback((fn: () => void) => {
     cancelAnimationFrame(rafRef.current);
@@ -95,7 +138,16 @@ export function useChartPointer({
   // Cancel any pending frame on unmount (no leaked rAF callbacks)
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
-  // ── Wheel zoom (native listener, non-passive to prevent page scroll) ──
+  // Helper to determine the hover zone
+  const getZone = useCallback((x: number, y: number, b: ChartBounds): ChartHoverZone => {
+    const rightAxisX = b.chartWidth - b.padding.right;
+    const bottomAxisY = b.chartHeight - b.padding.bottom;
+    if (x >= rightAxisX) return "yAxis";
+    if (y >= bottomAxisY) return "xAxis";
+    return "plot";
+  }, []);
+
+  // ── Wheel zoom (contextual: Y-axis, X-axis, or plot area) ──
   const boundsRef = useRef(bounds);
   useEffect(() => {
     boundsRef.current = bounds;
@@ -106,33 +158,52 @@ export function useChartPointer({
     viewportChangeRef.current = onViewportChange;
   });
 
+  const liveViewportRef = useRef(viewport);
+  useEffect(() => {
+    liveViewportRef.current = viewport;
+  });
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !panZoom) return;
 
-    // Coalesce wheel events through requestAnimationFrame: trackpads and
-    // high-resolution mice fire several events per frame; applying a zoom
-    // step (full canvas redraw) per event starved the render loop. Also
-    // chain the result into liveViewportRef so consecutive frames zoom
-    // from the latest state instead of a stale ref.
     let wheelRaf = 0;
-    let pending: { factor: number; anchorRatio: number } | null = null;
+    let pending: { mode: "plot" | "yAxis" | "xAxis"; factor: number; anchorRatio: number } | null = null;
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const b = boundsRef.current;
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
-      const anchorRatio = (mouseX - b.padding.left) / b.plotWidth;
-      const factor = e.deltaY < 0 ? 1.15 : 0.85;
-      pending = { factor, anchorRatio };
+      const mouseY = e.clientY - rect.top;
+      const zone = getZone(mouseX, mouseY, b);
+
+      if (zone === "yAxis") {
+        // Wheel over price axis: zoom/scale vertical price axis
+        const factor = e.deltaY < 0 ? 1.12 : 0.88;
+        const nextRatio = Math.max(0.1, Math.min(20, priceScaleRatioRef.current * factor));
+        updatePriceRatio(nextRatio);
+        return;
+      }
+
+      if (zone === "xAxis") {
+        // Wheel over time axis: zoom/scale horizontal time axis
+        const factor = e.deltaY < 0 ? 1.15 : 0.85;
+        pending = { mode: "xAxis", factor, anchorRatio: 0.5 };
+      } else {
+        // Default: wheel over plot area (zoom anchored around cursor)
+        const anchorRatio = Math.max(0, Math.min(1, (mouseX - b.padding.left) / b.plotWidth));
+        const factor = e.deltaY < 0 ? 1.15 : 0.85;
+        pending = { mode: "plot", factor, anchorRatio };
+      }
+
       if (wheelRaf) return;
       wheelRaf = requestAnimationFrame(() => {
         wheelRaf = 0;
         const p = pending;
         pending = null;
         if (!p) return;
-        const next = zoomViewportByAnchor(p.factor, p.anchorRatio);
+        const next = zoomViewport(liveViewportRef.current ?? createInitialViewport(), p.factor, p.anchorRatio);
         liveViewportRef.current = next;
         viewportChangeRef.current?.(next);
       });
@@ -143,17 +214,7 @@ export function useChartPointer({
       cancelAnimationFrame(wheelRaf);
       canvas.removeEventListener("wheel", onWheel);
     };
-  }, [canvasRef, panZoom]);
-
-  // zoomViewport needs the current viewport; go through a ref to avoid re-attaching the listener
-  const liveViewportRef = useRef(viewport);
-  useEffect(() => {
-    liveViewportRef.current = viewport;
-  });
-
-  function zoomViewportByAnchor(factor: number, anchorRatio: number): ViewportState {
-    return zoomViewport(liveViewportRef.current ?? createInitialViewport(), factor, anchorRatio);
-  }
+  }, [canvasRef, panZoom, getZone, updatePriceRatio]);
 
   // ── Hit testing (magnetized on candle centers) ──
   const hitTest = (mouseX: number, mouseY: number) => {
@@ -188,18 +249,54 @@ export function useChartPointer({
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
-    const { candle, price, globalIndex } = hitTest(mouseX, mouseY);
+    const zone = getZone(mouseX, mouseY, bounds);
 
+    // 1. Y-Axis Drag (Price Scale Stretch/Compress)
+    if (zone === "yAxis" && panZoom) {
+      canvas.setPointerCapture?.(e.pointerId);
+      dragRef.current = {
+        mode: "scaleY",
+        startX: mouseX,
+        startY: mouseY,
+        initialViewport: viewport ?? createInitialViewport(),
+        initialPriceScaleRatio: priceScaleRatioRef.current,
+      };
+      setHover(null);
+      return;
+    }
+
+    // 2. X-Axis Drag (Time Scale Stretch/Compress)
+    if (zone === "xAxis" && panZoom && viewport) {
+      canvas.setPointerCapture?.(e.pointerId);
+      dragRef.current = {
+        mode: "scaleX",
+        startX: mouseX,
+        startY: mouseY,
+        initialViewport: viewport,
+        initialPriceScaleRatio: priceScaleRatioRef.current,
+      };
+      setHover(null);
+      return;
+    }
+
+    // 3. Ruler Measurement (Shift-click or tool)
+    const { candle, price, globalIndex } = hitTest(mouseX, mouseY);
     if (e.shiftKey || isRulerToolActive) {
       const point: RulerPoint = { x: mouseX, y: mouseY, price, time: candle?.t, index: globalIndex };
       setRuler({ active: true, startPoint: point, currentPoint: point });
       return;
     }
 
+    // 4. Standard Pan Drag
     if (panZoom && viewport && onViewportChange) {
-      // Capture the pointer so the drag keeps tracking outside the canvas bounds
       canvas.setPointerCapture?.(e.pointerId);
-      dragRef.current = { isDragging: true, startX: mouseX, initialViewport: viewport };
+      dragRef.current = {
+        mode: "pan",
+        startX: mouseX,
+        startY: mouseY,
+        initialViewport: viewport,
+        initialPriceScaleRatio: priceScaleRatioRef.current,
+      };
     }
   };
 
@@ -209,6 +306,27 @@ export function useChartPointer({
     const rect = e.currentTarget.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
+    const zone = getZone(mouseX, mouseY, bounds);
+    setHoverZone(zone);
+
+    // Active Y-Axis Price Scale Drag
+    if (dragRef.current.mode === "scaleY") {
+      const deltaY = dragRef.current.startY - mouseY; // Drag up = positive (stretch)
+      const factor = Math.exp(deltaY * 0.008);
+      const nextRatio = Math.max(0.1, Math.min(20, dragRef.current.initialPriceScaleRatio * factor));
+      schedule(() => updatePriceRatio(nextRatio));
+      return;
+    }
+
+    // Active X-Axis Time Scale Drag
+    if (dragRef.current.mode === "scaleX" && onViewportChange) {
+      const deltaX = mouseX - dragRef.current.startX; // Drag right = positive (stretch/zoom in)
+      const factor = Math.exp(deltaX * 0.006);
+      const nextViewport = zoomViewport(dragRef.current.initialViewport, factor, 0.5);
+      schedule(() => onViewportChange(nextViewport));
+      return;
+    }
+
     const { candle, snapX, price, globalIndex } = hitTest(mouseX, mouseY);
 
     // Active ruler measurement drag
@@ -219,7 +337,7 @@ export function useChartPointer({
     }
 
     // Active pan drag
-    if (dragRef.current.isDragging && onViewportChange) {
+    if (dragRef.current.mode === "pan" && onViewportChange) {
       const deltaX = mouseX - dragRef.current.startX;
       const barWidth = bounds.plotWidth / Math.max(1, slotCount ?? visible.length);
       const deltaBars = Math.round(deltaX / barWidth);
@@ -231,22 +349,60 @@ export function useChartPointer({
       return;
     }
 
-    // Default: hover crosshair (rAF-coalesced)
-    schedule(() => setHover({ mouseX, mouseY, snapX, index: globalIndex, candle }));
+    // Default hover: only active inside plot area
+    if (zone === "plot") {
+      schedule(() => setHover({ mouseX, mouseY, snapX, index: globalIndex, candle }));
+    } else {
+      schedule(() => setHover(null));
+    }
   };
 
   const handlePointerUp = () => {
-    dragRef.current.isDragging = false;
+    dragRef.current.mode = "none";
   };
 
   const handlePointerCancel = () => {
-    dragRef.current.isDragging = false;
+    dragRef.current.mode = "none";
     setHover(null);
   };
 
   const handlePointerLeave = () => {
-    dragRef.current.isDragging = false;
+    dragRef.current.mode = "none";
     setHover(null);
+    setHoverZone("plot");
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = e.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const zone = getZone(mouseX, mouseY, bounds);
+
+    if (zone === "yAxis") {
+      // Reset vertical price scale auto-fit only
+      if (onResetPriceScale) {
+        onResetPriceScale();
+      } else {
+        updatePriceRatio(1.0);
+      }
+      return;
+    }
+
+    if (zone === "xAxis") {
+      // Reset horizontal time scale only
+      onReset?.();
+      return;
+    }
+
+    // Reset both in plot area
+    if (onResetPriceScale) {
+      onResetPriceScale();
+    } else {
+      updatePriceRatio(1.0);
+    }
+    onReset?.();
+    clearRuler();
   };
 
   const toggleRuler = useCallback(() => {
@@ -261,8 +417,32 @@ export function useChartPointer({
     setIsRulerToolActive(false);
   }, []);
 
+  const resetPriceScale = useCallback(() => {
+    if (onResetPriceScale) {
+      onResetPriceScale();
+    } else {
+      updatePriceRatio(1.0);
+    }
+  }, [onResetPriceScale, updatePriceRatio]);
+
+  // Compute cursor style based on hover zone and drag activity
+  const cursorStyle =
+    dragRef.current.mode === "scaleY" || hoverZone === "yAxis"
+      ? "cursor-ns-resize"
+      : dragRef.current.mode === "scaleX" || hoverZone === "xAxis"
+      ? "cursor-ew-resize"
+      : ruler.active || isRulerToolActive
+      ? "cursor-crosshair"
+      : dragRef.current.mode === "pan"
+      ? "cursor-grabbing"
+      : "cursor-crosshair";
+
   return {
     hover,
+    hoverZone,
+    priceScaleRatio,
+    resetPriceScale,
+    cursorStyle,
     ruler,
     isRulerToolActive,
     toggleRuler,
@@ -273,6 +453,7 @@ export function useChartPointer({
       onPointerUp: handlePointerUp,
       onPointerCancel: handlePointerCancel,
       onPointerLeave: handlePointerLeave,
+      onDoubleClick: handleDoubleClick,
     },
   };
 }

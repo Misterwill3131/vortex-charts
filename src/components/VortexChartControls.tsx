@@ -5,7 +5,7 @@ export interface VortexChartControlsProps {
   onZoomOut: () => void;
   onReset: () => void;
   isZoomed: boolean;
-  zoomLevel?: number;
+  zoomLevel?: number | string;
   isRulerActive?: boolean;
   onToggleRuler?: () => void;
   className?: string;
@@ -30,7 +30,7 @@ export const VortexChartControls: React.FC<VortexChartControlsProps> = ({
       {/* Zoom Level Badge (when zoomed) */}
       {isZoomed && (
         <span className="mr-1 rounded bg-sky-500/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-sky-400 border border-sky-400/30">
-          {zoomLevel}x
+          {typeof zoomLevel === "number" ? `${zoomLevel}x` : zoomLevel}
         </span>
       )}
 

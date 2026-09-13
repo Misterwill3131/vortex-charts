@@ -25,6 +25,7 @@ export {
   xToTime,
   nearestTimeIndex,
   type TimeScaleMapping,
+  type VerticalScaleOptions,
 } from "./engine/coordinates";
 export {
   drawChartZones,
@@ -57,7 +58,7 @@ export {
 // React Hooks (shared chart interaction engine)
 export { useChartSurface } from "./hooks/useChartSurface";
 export { useChartViewport } from "./hooks/useChartViewport";
-export { useChartPointer } from "./hooks/useChartPointer";
+export { useChartPointer, type ChartHoverZone } from "./hooks/useChartPointer";
 export { useCrosshairSync } from "./hooks/useCrosshairSync";
 
 // Theme

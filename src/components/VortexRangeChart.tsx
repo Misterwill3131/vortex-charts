@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { Candle, PriorDayRange, PremarketRange, VwapPoint } from "../types";
 import { VORTEX_THEME, type VortexThemeOverride } from "../theme/tokens";
 import { computeBounds, indexToX, nearestTimeIndex } from "../engine/coordinates";
@@ -59,9 +59,19 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
   // â”€â”€ Surface: container refs, width tracking, devicePixelRatio â”€â”€
   const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
 
-  // â”€â”€ Viewport: zoom & pan state â”€â”€
-  const { viewport, setViewport, zoomIn, zoomOut, resetView, isZoomed, zoomLevel } =
-    useChartViewport(sortedCandles.length, 12);
+  // ── Viewport: zoom & pan state ──
+  const {
+    viewport,
+    setViewport,
+    zoomIn,
+    zoomOut,
+    resetView,
+    isZoomed,
+    zoomLevel,
+    priceScaleRatio,
+    setPriceScaleRatio,
+    resetPriceScale,
+  } = useChartViewport(sortedCandles.length, 12);
 
   const mergedColors = useMemo(
     () => ({ ...VORTEX_THEME.colors, ...(theme.colors ?? EMPTY_COLORS) }),
@@ -85,8 +95,8 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
     vwapSeries.forEach((v) => {
       if (typeof v.vwap === "number" && v.vwap > 0) prices.push(v.vwap);
     });
-    return computeBounds(prices, containerWidth, height);
-  }, [visibleCandles, priorDay, premarket, vwapSeries, containerWidth, height]);
+    return computeBounds(prices, containerWidth, height, { factor: priceScaleRatio });
+  }, [visibleCandles, priorDay, premarket, vwapSeries, containerWidth, height, priceScaleRatio]);
 
   // Generate bottom time labels for visible slice
   const timeLabels = useMemo(() => {
@@ -131,8 +141,13 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
     return points;
   }, [vwapSeries, visibleCandles, bounds]);
 
-  // â”€â”€ Pointer interaction: hover crosshair, ruler, drag pan, wheel zoom â”€â”€
-  const { hover, ruler, isRulerToolActive, toggleRuler, clearRuler, pointerHandlers } =
+  const handleReset = () => {
+    resetView();
+    clearRuler();
+  };
+
+  // ── Pointer interaction: hover crosshair, ruler, drag pan, wheel zoom, X/Y axes scaling ──
+  const { hover, ruler, isRulerToolActive, toggleRuler, clearRuler, cursorStyle, pointerHandlers } =
     useChartPointer({
       canvasRef,
       bounds,
@@ -141,20 +156,19 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
       panZoom: true,
       viewport,
       onViewportChange: setViewport,
+      priceScaleRatio,
+      onPriceScaleRatioChange: setPriceScaleRatio,
+      onResetPriceScale: resetPriceScale,
+      onReset: handleReset,
     });
 
-  // â”€â”€ Multi-chart crosshair synchronization â”€â”€
+  // ── Multi-chart crosshair synchronization ──
   const [remoteHoverTime, setRemoteHoverTime] = useState<number | null>(null);
   useCrosshairSync({
     group: crosshairSyncGroup,
     localTime: hover?.candle?.t ?? null,
     onRemoteTime: setRemoteHoverTime,
   });
-
-  const handleReset = () => {
-    resetView();
-    clearRuler();
-  };
 
   // â”€â”€ Main canvas: redraw ONLY when data / viewport / size changes (not on hover) â”€â”€
   useEffect(() => {
@@ -278,10 +292,7 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
       <canvas
         ref={canvasRef}
         {...pointerHandlers}
-        onDoubleClick={handleReset}
-        className={`block h-full w-full ${
-          ruler.active || isRulerToolActive ? "cursor-crosshair" : isZoomed ? "cursor-grab active:cursor-grabbing" : "cursor-crosshair"
-        }`}
+        className={`block h-full w-full ${cursorStyle}`}
         style={{ touchAction: "none" }}
       />
       <canvas

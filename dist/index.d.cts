@@ -107,6 +107,10 @@ interface ChartBounds {
     plotHeight: number;
     padding: ViewportPadding;
 }
+interface VerticalScaleOptions {
+    factor?: number;
+    offset?: number;
+}
 interface ViewportLike {
     startIndex: number;
     endIndex: number;
@@ -349,7 +353,7 @@ interface VortexChartControlsProps {
     onZoomOut: () => void;
     onReset: () => void;
     isZoomed: boolean;
-    zoomLevel?: number;
+    zoomLevel?: number | string;
     isRulerActive?: boolean;
     onToggleRuler?: () => void;
     className?: string;
@@ -517,14 +521,18 @@ interface UseChartViewportOptions {
 declare function useChartViewport(totalCount: number, minVisible?: number, options?: UseChartViewportOptions): {
     viewport: ViewportState;
     setViewport: React.Dispatch<React.SetStateAction<ViewportState>>;
+    priceScaleRatio: number;
+    setPriceScaleRatio: React.Dispatch<React.SetStateAction<number>>;
+    resetPriceScale: () => void;
     zoomIn: () => void;
     zoomOut: () => void;
     resetView: () => void;
     pan: (deltaBars: number) => void;
     isZoomed: boolean;
-    zoomLevel: number;
+    zoomLevel: string | number;
 };
 
+type ChartHoverZone = "plot" | "yAxis" | "xAxis";
 interface UseChartPointerOptions {
     /** Main canvas (receives the pointer events) */
     canvasRef: React__default.RefObject<HTMLCanvasElement | null>;
@@ -550,18 +558,30 @@ interface UseChartPointerOptions {
     viewport?: ViewportState;
     /** Viewport setter — required when panZoom is enabled */
     onViewportChange?: (viewport: ViewportState) => void;
+    /** Current vertical price scale factor (from useChartViewport) */
+    priceScaleRatio?: number;
+    /** Setter for vertical price scale factor */
+    onPriceScaleRatioChange?: (ratio: number) => void;
+    /** Reset callback for vertical price scale */
+    onResetPriceScale?: () => void;
+    /** Reset callback for horizontal zoom */
+    onReset?: () => void;
 }
 /**
- * Centralizes pointer-driven interaction: hover crosshair state, ruler
- * measurement, drag panning and wheel zooming.
- *
- * - Uses Pointer Events (mouse, touch and pen in a single API).
- * - Coalesces hover / ruler / pan updates through requestAnimationFrame so
- *   at most one state update per display frame reaches React.
- * - Snaps hover to candle centers (magnetized crosshair).
+ * Centralizes pointer-driven interaction:
+ * - Hover crosshair state with magnetized candle snap
+ * - Ruler measurement (Shift+drag or toolbar)
+ * - Independent X-axis (Time) scaling via left-click drag & mouse wheel
+ * - Independent Y-axis (Price) scaling via left-click drag & mouse wheel
+ * - Viewport pan and zoom in the plot area
+ * - Double-click auto-fit reset (targeted per axis or global)
  */
-declare function useChartPointer({ canvasRef, bounds, visible, slotCount, indexOffset, timeScale, panZoom, viewport, onViewportChange, }: UseChartPointerOptions): {
+declare function useChartPointer({ canvasRef, bounds, visible, slotCount, indexOffset, timeScale, panZoom, viewport, onViewportChange, priceScaleRatio: externalPriceRatio, onPriceScaleRatioChange, onResetPriceScale, onReset, }: UseChartPointerOptions): {
     hover: HoverState | null;
+    hoverZone: ChartHoverZone;
+    priceScaleRatio: number;
+    resetPriceScale: () => void;
+    cursorStyle: string;
     ruler: RulerState;
     isRulerToolActive: boolean;
     toggleRuler: () => void;
@@ -572,6 +592,7 @@ declare function useChartPointer({ canvasRef, bounds, visible, slotCount, indexO
         onPointerUp: () => void;
         onPointerCancel: () => void;
         onPointerLeave: () => void;
+        onDoubleClick: (e: React__default.MouseEvent<HTMLCanvasElement>) => void;
     };
 };
 
@@ -606,4 +627,4 @@ declare function formatCandleTime(timestampMs: number, isIntraday?: boolean, tim
  */
 declare function formatPrice(price: number): string;
 
-export { type BarDatum, type BarReferenceLine, type Candle, type ChartZone, type CrosshairSyncEvent, type ExpectedMoveSpec, type PremarketRange, type PriceLine, type PriorDayRange, type RulerPoint, type RulerState, type TargetRange, type TimeScaleMapping, VORTEX_THEME, type ViewportState, VortexBarChart, type VortexBarChartProps, VortexCandleChart, type VortexCandleChartProps, VortexChartControls, type VortexChartControlsProps, VortexConeChart, type VortexConeChartProps, VortexRangeChart, type VortexRangeChartProps, type VortexThemeOverride, VortexWatermarkOverlay, type VwapPoint, computeBarBounds, computeZoneRect, createTailViewport, createViewport, drawBarChart, drawBarHoverBand, drawChartZones, drawRulerOverlay, drawVortexWatermark, followViewport, formatCandleTime, formatChange, formatPrice, formatVolume, getVisibleCount, getZoomLevel, isViewportZoomed, measureTextWidth, nearestDatumIndex, nearestTimeIndex, panViewport, parseZoneColor, publishCrosshairSync, resetViewport, subscribeCrosshairSync, thinLabels, timeToX, useChartPointer, useChartSurface, useChartViewport, useCrosshairSync, viewportIndexToX, viewportXToIndex, xToTime, zoomViewport };
+export { type BarDatum, type BarReferenceLine, type Candle, type ChartHoverZone, type ChartZone, type CrosshairSyncEvent, type ExpectedMoveSpec, type PremarketRange, type PriceLine, type PriorDayRange, type RulerPoint, type RulerState, type TargetRange, type TimeScaleMapping, VORTEX_THEME, type VerticalScaleOptions, type ViewportState, VortexBarChart, type VortexBarChartProps, VortexCandleChart, type VortexCandleChartProps, VortexChartControls, type VortexChartControlsProps, VortexConeChart, type VortexConeChartProps, VortexRangeChart, type VortexRangeChartProps, type VortexThemeOverride, VortexWatermarkOverlay, type VwapPoint, computeBarBounds, computeZoneRect, createTailViewport, createViewport, drawBarChart, drawBarHoverBand, drawChartZones, drawRulerOverlay, drawVortexWatermark, followViewport, formatCandleTime, formatChange, formatPrice, formatVolume, getVisibleCount, getZoomLevel, isViewportZoomed, measureTextWidth, nearestDatumIndex, nearestTimeIndex, panViewport, parseZoneColor, publishCrosshairSync, resetViewport, subscribeCrosshairSync, thinLabels, timeToX, useChartPointer, useChartSurface, useChartViewport, useCrosshairSync, viewportIndexToX, viewportXToIndex, xToTime, zoomViewport };

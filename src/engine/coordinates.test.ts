@@ -60,6 +60,33 @@ describe("computeBounds", () => {
     expect(bounds.plotWidth).toBeGreaterThanOrEqual(10);
     expect(bounds.plotHeight).toBeGreaterThanOrEqual(10);
   });
+
+  it("stretches and compresses vertical price bounds with factor", () => {
+    const baseBounds = computeBounds([100, 200], 600, 300);
+    const baseRange = baseBounds.priceRange;
+
+    // factor > 1 compresses visible range (zoom in on price)
+    const zoomedIn = computeBounds([100, 200], 600, 300, { factor: 2.0 });
+    expect(zoomedIn.priceRange).toBeCloseTo(baseRange / 2, 4);
+
+    // factor < 1 stretches visible range (zoom out on price)
+    const zoomedOut = computeBounds([100, 200], 600, 300, { factor: 0.5 });
+    expect(zoomedOut.priceRange).toBeCloseTo(baseRange * 2, 4);
+
+    // Centers remain consistent
+    const baseCenter = (baseBounds.minPrice + baseBounds.maxPrice) / 2;
+    const inCenter = (zoomedIn.minPrice + zoomedIn.maxPrice) / 2;
+    expect(inCenter).toBeCloseTo(baseCenter, 4);
+  });
+
+  it("shifts vertical price bounds with offset", () => {
+    const baseBounds = computeBounds([100, 200], 600, 300);
+    const shifted = computeBounds([100, 200], 600, 300, { offset: 15 });
+
+    expect(shifted.minPrice).toBeCloseTo(baseBounds.minPrice + 15, 4);
+    expect(shifted.maxPrice).toBeCloseTo(baseBounds.maxPrice + 15, 4);
+    expect(shifted.priceRange).toBeCloseTo(baseBounds.priceRange, 4);
+  });
 });
 
 describe("coordinate round-trips", () => {

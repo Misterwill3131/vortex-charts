@@ -23,12 +23,29 @@ export interface ChartBounds {
   padding: ViewportPadding;
 }
 
+export interface VerticalScaleOptions {
+  factor?: number; // > 1 stretches candles vertically, < 1 compresses
+  offset?: number; // shifts price axis window up/down
+}
+
 export function computeBounds(
   prices: number[],
   width: number,
   height: number,
-  padding: ViewportPadding = DEFAULT_PADDING
+  paddingOrScale?: ViewportPadding | VerticalScaleOptions,
+  scaleOpt?: VerticalScaleOptions
 ): ChartBounds {
+  let padding: ViewportPadding = DEFAULT_PADDING;
+  let verticalScale: VerticalScaleOptions | undefined = scaleOpt;
+
+  if (paddingOrScale) {
+    if ("factor" in paddingOrScale || "offset" in paddingOrScale) {
+      verticalScale = paddingOrScale as VerticalScaleOptions;
+    } else {
+      padding = paddingOrScale as ViewportPadding;
+    }
+  }
+
   const validPrices = prices.filter(
     (p) => typeof p === "number" && !isNaN(p) && isFinite(p) && p > 0
   );
@@ -51,12 +68,23 @@ export function computeBounds(
     max *= 1.02;
   }
 
-  // Add 6% vertical padding
+  // Add 8% vertical padding
   const span = max - min;
   const pad = Math.max(span * 0.08, 0.5);
-  const minPrice = min - pad;
-  const maxPrice = max + pad;
-  const priceRange = maxPrice - minPrice;
+  let minPrice = min - pad;
+  let maxPrice = max + pad;
+
+  if (verticalScale) {
+    const factor = Math.max(0.05, Math.min(50, verticalScale.factor ?? 1.0));
+    const offset = verticalScale.offset ?? 0;
+    const baseSpan = maxPrice - minPrice;
+    const scaledSpan = baseSpan / factor;
+    const mid = (minPrice + maxPrice) / 2 + offset;
+    minPrice = mid - scaledSpan / 2;
+    maxPrice = mid + scaledSpan / 2;
+  }
+
+  const priceRange = Math.max(maxPrice - minPrice, 0.0001);
 
   const plotWidth = Math.max(width - padding.left - padding.right, 10);
   const plotHeight = Math.max(height - padding.top - padding.bottom, 10);
