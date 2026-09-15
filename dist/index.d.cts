@@ -229,6 +229,8 @@ interface VortexCandleChartProps {
     initialVisibleBars?: number;
     /** Pin time labels to a market timezone, e.g. "America/New_York" */
     timeZone?: string;
+    /** Allow direct manipulation dragging past dataset boundaries */
+    allowOverscroll?: boolean;
     theme?: VortexThemeOverride;
 }
 declare const VortexCandleChart: React__default.FC<VortexCandleChartProps>;
@@ -245,6 +247,9 @@ interface VortexRangeChartProps {
     showControls?: boolean;
     /** Share this id across charts to synchronize their crosshairs */
     crosshairSyncGroup?: string;
+    viewportMode?: "reset" | "follow";
+    initialVisibleBars?: number;
+    allowOverscroll?: boolean;
     theme?: VortexThemeOverride;
 }
 declare const VortexRangeChart: React__default.FC<VortexRangeChartProps>;
@@ -857,8 +862,9 @@ declare function zoomViewport(viewport: ViewportState, factor: number, anchorRat
  * Pans the viewport horizontally by a specific number of bars.
  * @param viewport Current viewport state
  * @param deltaBars Positive = scroll earlier in history (left), Negative = scroll later (right)
+ * @param allowOverscroll When true, permits dragging past data bounds with bounded elastic overscroll (TradingView style)
  */
-declare function panViewport(viewport: ViewportState, deltaBars: number): ViewportState;
+declare function panViewport(viewport: ViewportState, deltaBars: number, allowOverscroll?: boolean): ViewportState;
 /**
  * Resets the viewport to show all candles.
  */
@@ -1115,6 +1121,8 @@ interface UseChartPointerOptions {
     slotCount?: number;
     /** Global index of the first visible candle (viewport pan offset) */
     indexOffset?: number;
+    /** Slot offset when visible slice is shifted by overscroll */
+    slotOffset?: number;
     /**
      * Time-based X mapping. When provided (and the visible slice is non-empty),
      * hit-testing resolves the hovered candle by timestamp instead of slot index.
@@ -1122,6 +1130,8 @@ interface UseChartPointerOptions {
     timeScale?: TimeScaleMapping | null;
     /** Enable wheel zoom + drag pan (candle & range charts) */
     panZoom?: boolean;
+    /** Allow direct manipulation dragging past dataset boundaries */
+    allowOverscroll?: boolean;
     /** Current viewport state — required when panZoom is enabled */
     viewport?: ViewportState;
     /** Viewport setter — required when panZoom is enabled */
@@ -1144,7 +1154,7 @@ interface UseChartPointerOptions {
  * - Viewport pan and zoom in the plot area
  * - Double-click auto-fit reset (targeted per axis or global)
  */
-declare function useChartPointer({ canvasRef, bounds, visible, slotCount, indexOffset, timeScale, panZoom, viewport, onViewportChange, priceScaleRatio: externalPriceRatio, onPriceScaleRatioChange, onResetPriceScale, onReset, }: UseChartPointerOptions): {
+declare function useChartPointer({ canvasRef, bounds, visible, slotCount, slotOffset, indexOffset, timeScale, panZoom, allowOverscroll, viewport, onViewportChange, priceScaleRatio: externalPriceRatio, onPriceScaleRatioChange, onResetPriceScale, onReset, }: UseChartPointerOptions): {
     hover: HoverState | null;
     hoverZone: ChartHoverZone;
     priceScaleRatio: number;

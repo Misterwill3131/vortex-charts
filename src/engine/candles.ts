@@ -17,13 +17,17 @@ export function drawCandlesticks(
   candles: Candle[],
   bounds: ChartBounds,
   style: CandleStyle = DEFAULT_CANDLE_STYLE,
-  timeScale?: TimeScaleMapping | null
+  timeScale?: TimeScaleMapping | null,
+  slotOffset: number = 0,
+  slotCount?: number
 ) {
   if (candles.length === 0) return;
 
-  const count = candles.length;
+  const count = slotCount ?? candles.length;
   const xOf = (idx: number): number =>
-    timeScale ? timeToX(candles[idx].t, timeScale, bounds) : indexToX(idx, count, bounds);
+    timeScale
+      ? timeToX(candles[idx].t, timeScale, bounds)
+      : indexToX(slotOffset + idx, count, bounds);
 
   // In time mode the body width derives from the smallest mapped gap between
   // consecutive candles, so dense sessions keep readable bodies while gaps
@@ -43,6 +47,10 @@ export function drawCandlesticks(
 
   candles.forEach((c, idx) => {
     const x = Math.round(xOf(idx));
+    // Skip rendering bars completely outside visible canvas boundaries
+    if (x < bounds.padding.left - 25 || x > bounds.chartWidth - bounds.padding.right + 25) {
+      return;
+    }
     const isUp = c.close >= c.open;
     const color = isUp ? style.upColor : style.downColor;
 

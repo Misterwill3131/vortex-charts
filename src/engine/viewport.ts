@@ -101,8 +101,13 @@ export function zoomViewport(
  * Pans the viewport horizontally by a specific number of bars.
  * @param viewport Current viewport state
  * @param deltaBars Positive = scroll earlier in history (left), Negative = scroll later (right)
+ * @param allowOverscroll When true, permits dragging past data bounds with bounded elastic overscroll (TradingView style)
  */
-export function panViewport(viewport: ViewportState, deltaBars: number): ViewportState {
+export function panViewport(
+  viewport: ViewportState,
+  deltaBars: number,
+  allowOverscroll: boolean = false
+): ViewportState {
   const { totalCount, startIndex, endIndex } = viewport;
   if (totalCount <= 0 || deltaBars === 0) return viewport;
 
@@ -110,12 +115,28 @@ export function panViewport(viewport: ViewportState, deltaBars: number): Viewpor
   let newStart = startIndex - deltaBars;
   let newEnd = newStart + span - 1;
 
-  if (newStart < 0) {
-    newStart = 0;
-    newEnd = Math.min(totalCount - 1, span - 1);
-  } else if (newEnd >= totalCount) {
-    newEnd = totalCount - 1;
-    newStart = Math.max(0, totalCount - span);
+  if (!allowOverscroll) {
+    if (newStart < 0) {
+      newStart = 0;
+      newEnd = Math.min(totalCount - 1, span - 1);
+    } else if (newEnd >= totalCount) {
+      newEnd = totalCount - 1;
+      newStart = Math.max(0, totalCount - span);
+    }
+  } else {
+    // With overscroll allowed: allow dragging with a generous bounded margin
+    // Minimum bars that must remain in the visible window
+    const minKeepVisible = Math.min(viewport.minVisible || 5, Math.max(1, totalCount));
+    const minStart = -(span - minKeepVisible);
+    const maxStart = totalCount - minKeepVisible;
+
+    if (newStart < minStart) {
+      newStart = minStart;
+      newEnd = newStart + span - 1;
+    } else if (newStart > maxStart) {
+      newStart = maxStart;
+      newEnd = newStart + span - 1;
+    }
   }
 
   return {

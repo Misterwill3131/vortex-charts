@@ -24,6 +24,8 @@ export interface UseChartPointerOptions {
   slotCount?: number;
   /** Global index of the first visible candle (viewport pan offset) */
   indexOffset?: number;
+  /** Slot offset when visible slice is shifted by overscroll */
+  slotOffset?: number;
   /**
    * Time-based X mapping. When provided (and the visible slice is non-empty),
    * hit-testing resolves the hovered candle by timestamp instead of slot index.
@@ -31,6 +33,8 @@ export interface UseChartPointerOptions {
   timeScale?: TimeScaleMapping | null;
   /** Enable wheel zoom + drag pan (candle & range charts) */
   panZoom?: boolean;
+  /** Allow direct manipulation dragging past dataset boundaries */
+  allowOverscroll?: boolean;
   /** Current viewport state — required when panZoom is enabled */
   viewport?: ViewportState;
   /** Viewport setter — required when panZoom is enabled */
@@ -69,9 +73,11 @@ export function useChartPointer({
   bounds,
   visible,
   slotCount,
+  slotOffset = 0,
   indexOffset = 0,
   timeScale = null,
   panZoom = false,
+  allowOverscroll = true,
   viewport,
   onViewportChange,
   priceScaleRatio: externalPriceRatio,
@@ -84,6 +90,7 @@ export function useChartPointer({
   const [internalRatio, setInternalRatio] = useState<number>(1.0);
   const [ruler, setRuler] = useState<RulerState>(INACTIVE_RULER);
   const [isRulerToolActive, setIsRulerToolActive] = useState<boolean>(false);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
 
   const priceScaleRatio = externalPriceRatio ?? internalRatio;
   const updatePriceRatio = useCallback(
@@ -229,7 +236,8 @@ export function useChartPointer({
       const centerX = bounds.padding.left + bounds.plotWidth / 2;
       return { candle: null, snapX: centerX, price: yToPrice(mouseY, bounds), globalIndex: -1 };
     }
-    const candle = visible[localIdx] ?? null;
+    const candleIdx = slotOffset != null ? localIdx - slotOffset : localIdx;
+    const candle = (candleIdx >= 0 && candleIdx < visible.length) ? visible[candleIdx] : null;
     const snapX = Math.round(
       timeScale && candle
         ? timeToX(candle.t, timeScale, bounds)
@@ -254,6 +262,7 @@ export function useChartPointer({
     // 1. Y-Axis Drag (Price Scale Stretch/Compress)
     if (zone === "yAxis" && panZoom) {
       canvas.setPointerCapture?.(e.pointerId);
+      setIsDragging(true);
       dragRef.current = {
         mode: "scaleY",
         startX: mouseX,
@@ -268,6 +277,7 @@ export function useChartPointer({
     // 2. X-Axis Drag (Time Scale Stretch/Compress)
     if (zone === "xAxis" && panZoom && viewport) {
       canvas.setPointerCapture?.(e.pointerId);
+      setIsDragging(true);
       dragRef.current = {
         mode: "scaleX",
         startX: mouseX,
@@ -287,9 +297,10 @@ export function useChartPointer({
       return;
     }
 
-    // 4. Standard Pan Drag
+    // 4. Standard Pan Drag (Direct manipulation via Left Click)
     if (panZoom && viewport && onViewportChange) {
       canvas.setPointerCapture?.(e.pointerId);
+      setIsDragging(true);
       dragRef.current = {
         mode: "pan",
         startX: mouseX,
@@ -336,12 +347,12 @@ export function useChartPointer({
       return;
     }
 
-    // Active pan drag
+    // Active pan drag (Smooth 60 FPS viewport movement)
     if (dragRef.current.mode === "pan" && onViewportChange) {
       const deltaX = mouseX - dragRef.current.startX;
       const barWidth = bounds.plotWidth / Math.max(1, slotCount ?? visible.length);
       const deltaBars = Math.round(deltaX / barWidth);
-      const nextViewport = panViewport(dragRef.current.initialViewport, deltaBars);
+      const nextViewport = panViewport(dragRef.current.initialViewport, deltaBars, allowOverscroll);
       schedule(() => {
         onViewportChange(nextViewport);
         setHover(null);
@@ -359,15 +370,18 @@ export function useChartPointer({
 
   const handlePointerUp = () => {
     dragRef.current.mode = "none";
+    setIsDragging(false);
   };
 
   const handlePointerCancel = () => {
     dragRef.current.mode = "none";
+    setIsDragging(false);
     setHover(null);
   };
 
   const handlePointerLeave = () => {
     dragRef.current.mode = "none";
+    setIsDragging(false);
     setHover(null);
     setHoverZone("plot");
   };
@@ -433,8 +447,10 @@ export function useChartPointer({
       ? "cursor-ew-resize"
       : ruler.active || isRulerToolActive
       ? "cursor-crosshair"
-      : dragRef.current.mode === "pan"
+      : isDragging || dragRef.current.mode === "pan"
       ? "cursor-grabbing"
+      : panZoom && hoverZone === "plot"
+      ? "cursor-grab"
       : "cursor-crosshair";
 
   return {

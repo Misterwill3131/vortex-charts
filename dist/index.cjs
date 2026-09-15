@@ -478,10 +478,10 @@ var DEFAULT_CANDLE_STYLE = {
   downColor: "#f43f5e"
   // Bearish Rose
 };
-function drawCandlesticks(ctx, candles, bounds, style = DEFAULT_CANDLE_STYLE, timeScale) {
+function drawCandlesticks(ctx, candles, bounds, style = DEFAULT_CANDLE_STYLE, timeScale, slotOffset = 0, slotCount) {
   if (candles.length === 0) return;
-  const count = candles.length;
-  const xOf = (idx) => timeScale ? timeToX(candles[idx].t, timeScale, bounds) : indexToX(idx, count, bounds);
+  const count = slotCount ?? candles.length;
+  const xOf = (idx) => timeScale ? timeToX(candles[idx].t, timeScale, bounds) : indexToX(slotOffset + idx, count, bounds);
   let slotWidth = bounds.plotWidth / count;
   if (timeScale) {
     let minGap = Infinity;
@@ -495,6 +495,9 @@ function drawCandlesticks(ctx, candles, bounds, style = DEFAULT_CANDLE_STYLE, ti
   ctx.save();
   candles.forEach((c, idx) => {
     const x = Math.round(xOf(idx));
+    if (x < bounds.padding.left - 25 || x > bounds.chartWidth - bounds.padding.right + 25) {
+      return;
+    }
     const isUp = c.close >= c.open;
     const color = isUp ? style.upColor : style.downColor;
     const yHigh = Math.round(priceToY(c.high, bounds));
@@ -1125,18 +1128,31 @@ function zoomViewport(viewport, factor, anchorRatio = 0.5) {
     endIndex: Math.min(totalCount - 1, newEnd)
   };
 }
-function panViewport(viewport, deltaBars) {
+function panViewport(viewport, deltaBars, allowOverscroll = false) {
   const { totalCount, startIndex, endIndex } = viewport;
   if (totalCount <= 0 || deltaBars === 0) return viewport;
   const span = endIndex - startIndex + 1;
   let newStart = startIndex - deltaBars;
   let newEnd = newStart + span - 1;
-  if (newStart < 0) {
-    newStart = 0;
-    newEnd = Math.min(totalCount - 1, span - 1);
-  } else if (newEnd >= totalCount) {
-    newEnd = totalCount - 1;
-    newStart = Math.max(0, totalCount - span);
+  if (!allowOverscroll) {
+    if (newStart < 0) {
+      newStart = 0;
+      newEnd = Math.min(totalCount - 1, span - 1);
+    } else if (newEnd >= totalCount) {
+      newEnd = totalCount - 1;
+      newStart = Math.max(0, totalCount - span);
+    }
+  } else {
+    const minKeepVisible = Math.min(viewport.minVisible || 5, Math.max(1, totalCount));
+    const minStart = -(span - minKeepVisible);
+    const maxStart = totalCount - minKeepVisible;
+    if (newStart < minStart) {
+      newStart = minStart;
+      newEnd = newStart + span - 1;
+    } else if (newStart > maxStart) {
+      newStart = maxStart;
+      newEnd = newStart + span - 1;
+    }
   }
   return {
     ...viewport,
@@ -1229,9 +1245,11 @@ function useChartPointer({
   bounds,
   visible,
   slotCount,
+  slotOffset = 0,
   indexOffset = 0,
   timeScale = null,
   panZoom = false,
+  allowOverscroll = true,
   viewport,
   onViewportChange,
   priceScaleRatio: externalPriceRatio,
@@ -1244,6 +1262,7 @@ function useChartPointer({
   const [internalRatio, setInternalRatio] = (0, import_react3.useState)(1);
   const [ruler, setRuler] = (0, import_react3.useState)(INACTIVE_RULER);
   const [isRulerToolActive, setIsRulerToolActive] = (0, import_react3.useState)(false);
+  const [isDragging, setIsDragging] = (0, import_react3.useState)(false);
   const priceScaleRatio = externalPriceRatio ?? internalRatio;
   const updatePriceRatio = (0, import_react3.useCallback)(
     (next) => {
@@ -1360,7 +1379,8 @@ function useChartPointer({
       const centerX = bounds.padding.left + bounds.plotWidth / 2;
       return { candle: null, snapX: centerX, price: yToPrice(mouseY, bounds), globalIndex: -1 };
     }
-    const candle = visible[localIdx] ?? null;
+    const candleIdx = slotOffset != null ? localIdx - slotOffset : localIdx;
+    const candle = candleIdx >= 0 && candleIdx < visible.length ? visible[candleIdx] : null;
     const snapX = Math.round(
       timeScale && candle ? timeToX(candle.t, timeScale, bounds) : indexToX(localIdx, count, bounds)
     );
@@ -1378,6 +1398,7 @@ function useChartPointer({
     const zone = getZone(mouseX, mouseY, bounds);
     if (zone === "yAxis" && panZoom) {
       canvas.setPointerCapture?.(e.pointerId);
+      setIsDragging(true);
       dragRef.current = {
         mode: "scaleY",
         startX: mouseX,
@@ -1390,6 +1411,7 @@ function useChartPointer({
     }
     if (zone === "xAxis" && panZoom && viewport) {
       canvas.setPointerCapture?.(e.pointerId);
+      setIsDragging(true);
       dragRef.current = {
         mode: "scaleX",
         startX: mouseX,
@@ -1408,6 +1430,7 @@ function useChartPointer({
     }
     if (panZoom && viewport && onViewportChange) {
       canvas.setPointerCapture?.(e.pointerId);
+      setIsDragging(true);
       dragRef.current = {
         mode: "pan",
         startX: mouseX,
@@ -1448,7 +1471,7 @@ function useChartPointer({
       const deltaX = mouseX - dragRef.current.startX;
       const barWidth = bounds.plotWidth / Math.max(1, slotCount ?? visible.length);
       const deltaBars = Math.round(deltaX / barWidth);
-      const nextViewport = panViewport(dragRef.current.initialViewport, deltaBars);
+      const nextViewport = panViewport(dragRef.current.initialViewport, deltaBars, allowOverscroll);
       schedule(() => {
         onViewportChange(nextViewport);
         setHover(null);
@@ -1463,13 +1486,16 @@ function useChartPointer({
   };
   const handlePointerUp = () => {
     dragRef.current.mode = "none";
+    setIsDragging(false);
   };
   const handlePointerCancel = () => {
     dragRef.current.mode = "none";
+    setIsDragging(false);
     setHover(null);
   };
   const handlePointerLeave = () => {
     dragRef.current.mode = "none";
+    setIsDragging(false);
     setHover(null);
     setHoverZone("plot");
   };
@@ -1516,7 +1542,7 @@ function useChartPointer({
       updatePriceRatio(1);
     }
   }, [onResetPriceScale, updatePriceRatio]);
-  const cursorStyle = dragRef.current.mode === "scaleY" || hoverZone === "yAxis" ? "cursor-ns-resize" : dragRef.current.mode === "scaleX" || hoverZone === "xAxis" ? "cursor-ew-resize" : ruler.active || isRulerToolActive ? "cursor-crosshair" : dragRef.current.mode === "pan" ? "cursor-grabbing" : "cursor-crosshair";
+  const cursorStyle = dragRef.current.mode === "scaleY" || hoverZone === "yAxis" ? "cursor-ns-resize" : dragRef.current.mode === "scaleX" || hoverZone === "xAxis" ? "cursor-ew-resize" : ruler.active || isRulerToolActive ? "cursor-crosshair" : isDragging || dragRef.current.mode === "pan" ? "cursor-grabbing" : panZoom && hoverZone === "plot" ? "cursor-grab" : "cursor-crosshair";
   return {
     hover,
     hoverZone,
@@ -1606,6 +1632,7 @@ var VortexCandleChart = ({
   zones,
   viewportMode = "reset",
   initialVisibleBars,
+  allowOverscroll = true,
   timeZone,
   theme = {}
 }) => {
@@ -1632,12 +1659,14 @@ var VortexCandleChart = ({
     () => ({ ...VORTEX_THEME.colors, ...theme.colors ?? EMPTY_COLORS }),
     [theme.colors]
   );
+  const span = Math.max(1, viewport.endIndex - viewport.startIndex + 1);
+  const candleSliceStart = Math.max(0, Math.min(viewport.startIndex, sortedCandles.length - 1));
+  const candleSliceEnd = Math.max(candleSliceStart, Math.min(viewport.endIndex, sortedCandles.length - 1));
   const visibleCandles = (0, import_react5.useMemo)(() => {
     if (sortedCandles.length === 0) return [];
-    const start = Math.max(0, Math.min(viewport.startIndex, sortedCandles.length - 1));
-    const end = Math.max(start, Math.min(viewport.endIndex, sortedCandles.length - 1));
-    return sortedCandles.slice(start, end + 1);
-  }, [sortedCandles, viewport.startIndex, viewport.endIndex]);
+    return sortedCandles.slice(candleSliceStart, candleSliceEnd + 1);
+  }, [sortedCandles, candleSliceStart, candleSliceEnd]);
+  const slotOffset = sortedCandles.length > 0 ? candleSliceStart - viewport.startIndex : 0;
   const bounds = (0, import_react5.useMemo)(() => {
     const prices = [];
     visibleCandles.forEach((c) => prices.push(c.high, c.low));
@@ -1712,17 +1741,18 @@ var VortexCandleChart = ({
   }, [timeScale, visibleCandles]);
   const timeLabels = (0, import_react5.useMemo)(() => {
     if (visibleCandles.length === 0) return [];
-    const count = visibleCandles.length;
     const maxLabels = Math.max(3, Math.min(6, Math.floor(containerWidth / 120)));
-    const step = Math.max(1, Math.floor(count / maxLabels));
+    const step = Math.max(1, Math.floor(visibleCandles.length / maxLabels));
     const labels = [];
-    for (let i = 0; i < count; i += step) {
+    for (let i = 0; i < visibleCandles.length; i += step) {
       const c = visibleCandles[i];
-      const x = timeScaleMapping ? timeToX(c.t, timeScaleMapping, chartBounds) : indexToX(i, count, chartBounds);
-      labels.push({ x, text: formatCandleTime(c.t, isIntraday, timeZone) });
+      const x = timeScaleMapping ? timeToX(c.t, timeScaleMapping, chartBounds) : indexToX(slotOffset + i, span, chartBounds);
+      if (x >= chartBounds.padding.left && x <= chartBounds.chartWidth - chartBounds.padding.right) {
+        labels.push({ x, text: formatCandleTime(c.t, isIntraday, timeZone) });
+      }
     }
     return labels;
-  }, [visibleCandles, containerWidth, chartBounds, isIntraday, timeScaleMapping, timeZone]);
+  }, [visibleCandles, containerWidth, chartBounds, isIntraday, timeScaleMapping, timeZone, slotOffset, span]);
   const handleReset = () => {
     resetView();
     clearRuler();
@@ -1731,9 +1761,12 @@ var VortexCandleChart = ({
     canvasRef,
     bounds: chartBounds,
     visible: visibleCandles,
+    slotCount: span,
+    slotOffset,
     indexOffset: viewport.startIndex,
     timeScale: timeScaleMapping,
     panZoom: true,
+    allowOverscroll,
     viewport,
     onViewportChange: setViewport,
     priceScaleRatio,
@@ -1766,13 +1799,15 @@ var VortexCandleChart = ({
         upColor: mergedColors.bullish,
         downColor: mergedColors.bearish
       },
-      timeScaleMapping
+      timeScaleMapping,
+      slotOffset,
+      span
     );
     drawPriceLines(ctx, allLines, chartBounds);
     if (showWatermark) {
       drawVortexWatermark(ctx, chartBounds);
     }
-  }, [containerWidth, height, dpr, chartBounds, visibleCandles, allLines, timeLabels, timeScaleMapping, zones, showWatermark, mergedColors, canvasRef]);
+  }, [containerWidth, height, dpr, chartBounds, visibleCandles, allLines, timeLabels, timeScaleMapping, zones, showWatermark, mergedColors, canvasRef, slotOffset, span]);
   (0, import_react5.useEffect)(() => {
     const canvas = overlayRef.current;
     if (!canvas) return;
@@ -2016,6 +2051,9 @@ var VortexRangeChart = ({
   showWatermark = true,
   showControls = true,
   crosshairSyncGroup,
+  viewportMode = "reset",
+  initialVisibleBars,
+  allowOverscroll = true,
   theme = {}
 }) => {
   const sortedCandles = (0, import_react6.useMemo)(() => {
@@ -2033,17 +2071,22 @@ var VortexRangeChart = ({
     priceScaleRatio,
     setPriceScaleRatio,
     resetPriceScale
-  } = useChartViewport(sortedCandles.length, 12);
+  } = useChartViewport(sortedCandles.length, 8, {
+    mode: viewportMode,
+    initialVisibleBars
+  });
   const mergedColors = (0, import_react6.useMemo)(
     () => ({ ...VORTEX_THEME.colors, ...theme.colors ?? EMPTY_COLORS2 }),
     [theme.colors]
   );
+  const span = Math.max(1, viewport.endIndex - viewport.startIndex + 1);
+  const candleSliceStart = Math.max(0, Math.min(viewport.startIndex, sortedCandles.length - 1));
+  const candleSliceEnd = Math.max(candleSliceStart, Math.min(viewport.endIndex, sortedCandles.length - 1));
   const visibleCandles = (0, import_react6.useMemo)(() => {
     if (sortedCandles.length === 0) return [];
-    const start = Math.max(0, Math.min(viewport.startIndex, sortedCandles.length - 1));
-    const end = Math.max(start, Math.min(viewport.endIndex, sortedCandles.length - 1));
-    return sortedCandles.slice(start, end + 1);
-  }, [sortedCandles, viewport.startIndex, viewport.endIndex]);
+    return sortedCandles.slice(candleSliceStart, candleSliceEnd + 1);
+  }, [sortedCandles, candleSliceStart, candleSliceEnd]);
+  const slotOffset = sortedCandles.length > 0 ? candleSliceStart - viewport.startIndex : 0;
   const bounds = (0, import_react6.useMemo)(() => {
     const prices = [];
     visibleCandles.forEach((c) => prices.push(c.high, c.low));
@@ -2056,25 +2099,25 @@ var VortexRangeChart = ({
   }, [visibleCandles, priorDay, premarket, vwapSeries, containerWidth, height, priceScaleRatio]);
   const timeLabels = (0, import_react6.useMemo)(() => {
     if (visibleCandles.length === 0) return [];
-    const count = visibleCandles.length;
     const maxLabels = Math.max(3, Math.min(6, Math.floor(containerWidth / 120)));
-    const step = Math.max(1, Math.floor(count / maxLabels));
+    const step = Math.max(1, Math.floor(visibleCandles.length / maxLabels));
     const labels = [];
-    for (let i = 0; i < count; i += step) {
+    for (let i = 0; i < visibleCandles.length; i += step) {
       const c = visibleCandles[i];
-      const x = indexToX(i, count, bounds);
-      labels.push({ x, text: formatCandleTime(c.t, true) });
+      const x = indexToX(slotOffset + i, span, bounds);
+      if (x >= bounds.padding.left && x <= bounds.chartWidth - bounds.padding.right) {
+        labels.push({ x, text: formatCandleTime(c.t, true) });
+      }
     }
     return labels;
-  }, [visibleCandles, containerWidth, bounds]);
+  }, [visibleCandles, containerWidth, bounds, slotOffset, span]);
   const vwapPoints = (0, import_react6.useMemo)(() => {
     if (vwapSeries.length === 0 || visibleCandles.length === 0) return [];
     const points = [];
-    const count = visibleCandles.length;
     vwapSeries.forEach((v) => {
       let closestIdx = -1;
       let minDiff = Infinity;
-      for (let i = 0; i < count; i++) {
+      for (let i = 0; i < visibleCandles.length; i++) {
         const diff = Math.abs(visibleCandles[i].t - v.t);
         if (diff < minDiff) {
           minDiff = diff;
@@ -2082,12 +2125,12 @@ var VortexRangeChart = ({
         }
       }
       if (closestIdx >= 0 && minDiff < 1e3 * 60 * 30) {
-        const x = indexToX(closestIdx, count, bounds);
+        const x = indexToX(slotOffset + closestIdx, span, bounds);
         points.push({ x, price: v.vwap });
       }
     });
     return points;
-  }, [vwapSeries, visibleCandles, bounds]);
+  }, [vwapSeries, visibleCandles, bounds, slotOffset, span]);
   const handleReset = () => {
     resetView();
     clearRuler();
@@ -2096,8 +2139,11 @@ var VortexRangeChart = ({
     canvasRef,
     bounds,
     visible: visibleCandles,
+    slotCount: span,
+    slotOffset,
     indexOffset: viewport.startIndex,
     panZoom: true,
+    allowOverscroll,
     viewport,
     onViewportChange: setViewport,
     priceScaleRatio,
@@ -2149,10 +2195,18 @@ var VortexRangeChart = ({
         bounds
       );
     }
-    drawCandlesticks(ctx, visibleCandles, bounds, {
-      upColor: mergedColors.bullish,
-      downColor: mergedColors.bearish
-    });
+    drawCandlesticks(
+      ctx,
+      visibleCandles,
+      bounds,
+      {
+        upColor: mergedColors.bullish,
+        downColor: mergedColors.bearish
+      },
+      null,
+      slotOffset,
+      span
+    );
     if (showVwap && vwapPoints.length > 1) {
       drawLineSeries(ctx, vwapPoints, bounds, {
         color: mergedColors.vwap,
@@ -2163,7 +2217,7 @@ var VortexRangeChart = ({
     if (showWatermark) {
       drawVortexWatermark(ctx, bounds);
     }
-  }, [containerWidth, height, dpr, bounds, visibleCandles, priorDay, premarket, vwapPoints, overlayMode, timeLabels, showWatermark, mergedColors, canvasRef]);
+  }, [containerWidth, height, dpr, bounds, visibleCandles, priorDay, premarket, vwapPoints, overlayMode, timeLabels, showWatermark, mergedColors, canvasRef, slotOffset, span]);
   (0, import_react6.useEffect)(() => {
     const canvas = overlayRef.current;
     if (!canvas) return;
@@ -2184,12 +2238,12 @@ var VortexRangeChart = ({
         const tSpan = visibleCandles[visibleCandles.length - 1].t - visibleCandles[0].t;
         const avgGap = tSpan / Math.max(1, visibleCandles.length - 1);
         if (Math.abs(c.t - remoteHoverTime) <= Math.max(avgGap, 6e4)) {
-          const x = indexToX(idx, visibleCandles.length, bounds);
+          const x = indexToX(slotOffset + idx, span, bounds);
           drawRemoteCrosshair(ctx, bounds, x);
         }
       }
     }
-  }, [containerWidth, height, dpr, bounds, hover, ruler, remoteHoverTime, visibleCandles, overlayRef]);
+  }, [containerWidth, height, dpr, bounds, hover, ruler, remoteHoverTime, visibleCandles, overlayRef, slotOffset, span]);
   const hoverMetrics = (0, import_react6.useMemo)(() => {
     if (!hover?.candle) return null;
     const change = formatChange(hover.candle.open, hover.candle.close);

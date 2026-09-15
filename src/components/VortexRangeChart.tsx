@@ -29,6 +29,9 @@ export interface VortexRangeChartProps {
   showControls?: boolean;
   /** Share this id across charts to synchronize their crosshairs */
   crosshairSyncGroup?: string;
+  viewportMode?: "reset" | "follow";
+  initialVisibleBars?: number;
+  allowOverscroll?: boolean;
   theme?: VortexThemeOverride;
 }
 
@@ -49,6 +52,9 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
   showWatermark = true,
   showControls = true,
   crosshairSyncGroup,
+  viewportMode = "reset",
+  initialVisibleBars,
+  allowOverscroll = true,
   theme = {},
 }) => {
   // Deduplicate and sort intraday candles
@@ -56,7 +62,7 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
     return Array.from(new Map(candles.map((c) => [c.t, c])).values()).sort((a, b) => a.t - b.t);
   }, [candles]);
 
-  // â”€â”€ Surface: container refs, width tracking, devicePixelRatio â”€â”€
+  // ── Surface: container refs, width tracking, devicePixelRatio ──
   const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
 
   // ── Viewport: zoom & pan state ──
@@ -71,20 +77,28 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
     priceScaleRatio,
     setPriceScaleRatio,
     resetPriceScale,
-  } = useChartViewport(sortedCandles.length, 12);
+  } = useChartViewport(sortedCandles.length, 8, {
+    mode: viewportMode,
+    initialVisibleBars,
+  });
 
   const mergedColors = useMemo(
     () => ({ ...VORTEX_THEME.colors, ...(theme.colors ?? EMPTY_COLORS) }),
     [theme.colors]
   );
 
-  // Slice visible candles according to viewport
+  const span = Math.max(1, viewport.endIndex - viewport.startIndex + 1);
+  const candleSliceStart = Math.max(0, Math.min(viewport.startIndex, sortedCandles.length - 1));
+  const candleSliceEnd = Math.max(candleSliceStart, Math.min(viewport.endIndex, sortedCandles.length - 1));
+
+  // Slice visible candles according to viewport window
   const visibleCandles = useMemo(() => {
     if (sortedCandles.length === 0) return [];
-    const start = Math.max(0, Math.min(viewport.startIndex, sortedCandles.length - 1));
-    const end = Math.max(start, Math.min(viewport.endIndex, sortedCandles.length - 1));
-    return sortedCandles.slice(start, end + 1);
-  }, [sortedCandles, viewport.startIndex, viewport.endIndex]);
+    return sortedCandles.slice(candleSliceStart, candleSliceEnd + 1);
+  }, [sortedCandles, candleSliceStart, candleSliceEnd]);
+
+  // Slot offset: position of the first sliced candle within the viewport slots
+  const slotOffset = sortedCandles.length > 0 ? candleSliceStart - viewport.startIndex : 0;
 
   // Compute adaptive price bounds (auto-scale vertical price axis)
   const bounds = useMemo(() => {
@@ -101,31 +115,31 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
   // Generate bottom time labels for visible slice
   const timeLabels = useMemo(() => {
     if (visibleCandles.length === 0) return [];
-    const count = visibleCandles.length;
     const maxLabels = Math.max(3, Math.min(6, Math.floor(containerWidth / 120)));
-    const step = Math.max(1, Math.floor(count / maxLabels));
+    const step = Math.max(1, Math.floor(visibleCandles.length / maxLabels));
 
     const labels: { x: number; text: string }[] = [];
-    for (let i = 0; i < count; i += step) {
+    for (let i = 0; i < visibleCandles.length; i += step) {
       const c = visibleCandles[i];
-      const x = indexToX(i, count, bounds);
-      labels.push({ x, text: formatCandleTime(c.t, true) });
+      const x = indexToX(slotOffset + i, span, bounds);
+      if (x >= bounds.padding.left && x <= bounds.chartWidth - bounds.padding.right) {
+        labels.push({ x, text: formatCandleTime(c.t, true) });
+      }
     }
     return labels;
-  }, [visibleCandles, containerWidth, bounds]);
+  }, [visibleCandles, containerWidth, bounds, slotOffset, span]);
 
   // Map VWAP series to X coordinates matching visible candles
   const vwapPoints = useMemo<DataPoint[]>(() => {
     if (vwapSeries.length === 0 || visibleCandles.length === 0) return [];
 
     const points: DataPoint[] = [];
-    const count = visibleCandles.length;
 
     vwapSeries.forEach((v) => {
       // Find closest candle index in visible set
       let closestIdx = -1;
       let minDiff = Infinity;
-      for (let i = 0; i < count; i++) {
+      for (let i = 0; i < visibleCandles.length; i++) {
         const diff = Math.abs(visibleCandles[i].t - v.t);
         if (diff < minDiff) {
           minDiff = diff;
@@ -133,13 +147,13 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
         }
       }
       if (closestIdx >= 0 && minDiff < 1000 * 60 * 30) {
-        const x = indexToX(closestIdx, count, bounds);
+        const x = indexToX(slotOffset + closestIdx, span, bounds);
         points.push({ x, price: v.vwap });
       }
     });
 
     return points;
-  }, [vwapSeries, visibleCandles, bounds]);
+  }, [vwapSeries, visibleCandles, bounds, slotOffset, span]);
 
   const handleReset = () => {
     resetView();
@@ -152,8 +166,11 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
       canvasRef,
       bounds,
       visible: visibleCandles,
+      slotCount: span,
+      slotOffset,
       indexOffset: viewport.startIndex,
       panZoom: true,
+      allowOverscroll,
       viewport,
       onViewportChange: setViewport,
       priceScaleRatio,
@@ -219,10 +236,18 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
     }
 
     // 3. Intraday Candlesticks
-    drawCandlesticks(ctx, visibleCandles, bounds, {
-      upColor: mergedColors.bullish,
-      downColor: mergedColors.bearish,
-    });
+    drawCandlesticks(
+      ctx,
+      visibleCandles,
+      bounds,
+      {
+        upColor: mergedColors.bullish,
+        downColor: mergedColors.bearish,
+      },
+      null,
+      slotOffset,
+      span
+    );
 
     // 4. VWAP Line
     if (showVwap && vwapPoints.length > 1) {
@@ -237,9 +262,9 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
     if (showWatermark) {
       drawVortexWatermark(ctx, bounds);
     }
-  }, [containerWidth, height, dpr, bounds, visibleCandles, priorDay, premarket, vwapPoints, overlayMode, timeLabels, showWatermark, mergedColors, canvasRef]);
+  }, [containerWidth, height, dpr, bounds, visibleCandles, priorDay, premarket, vwapPoints, overlayMode, timeLabels, showWatermark, mergedColors, canvasRef, slotOffset, span]);
 
-  // â”€â”€ Overlay canvas: lightweight crosshair + ruler, redrawn on hover only â”€â”€
+  // ── Overlay canvas: lightweight crosshair + ruler, redrawn on hover only ──
   useEffect(() => {
     const canvas = overlayRef.current;
     if (!canvas) return;
@@ -268,12 +293,12 @@ export const VortexRangeChart: React.FC<VortexRangeChartProps> = ({
         const tSpan = visibleCandles[visibleCandles.length - 1].t - visibleCandles[0].t;
         const avgGap = tSpan / Math.max(1, visibleCandles.length - 1);
         if (Math.abs(c.t - remoteHoverTime) <= Math.max(avgGap, 60_000)) {
-          const x = indexToX(idx, visibleCandles.length, bounds);
+          const x = indexToX(slotOffset + idx, span, bounds);
           drawRemoteCrosshair(ctx, bounds, x);
         }
       }
     }
-  }, [containerWidth, height, dpr, bounds, hover, ruler, remoteHoverTime, visibleCandles, overlayRef]);
+  }, [containerWidth, height, dpr, bounds, hover, ruler, remoteHoverTime, visibleCandles, overlayRef, slotOffset, span]);
 
   // Compute change metrics for hover tooltip
   const hoverMetrics = useMemo(() => {

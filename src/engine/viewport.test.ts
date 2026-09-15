@@ -79,6 +79,19 @@ describe("Viewport Engine", () => {
     expect(hitEnd.startIndex).toBe(50);
   });
 
+  it("pans with overscroll when enabled", () => {
+    const vp = createViewport(50, 10); // span = 50, start = 0, end = 49
+    // Pan right (scrolling into past, negative start allowed)
+    const overscrolledLeft = panViewport(vp, 15, true);
+    expect(overscrolledLeft.startIndex).toBe(-15);
+    expect(overscrolledLeft.endIndex).toBe(34);
+
+    // Pan left (scrolling into future, positive start beyond 0 allowed)
+    const overscrolledRight = panViewport(vp, -20, true);
+    expect(overscrolledRight.startIndex).toBe(20);
+    expect(overscrolledRight.endIndex).toBe(69);
+  });
+
   it("resets viewport back to initial state", () => {
     const vp = createViewport(60, 8);
     const zoomed = zoomViewport(vp, 3.0, 0.8);

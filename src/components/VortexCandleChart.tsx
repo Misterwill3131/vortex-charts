@@ -58,6 +58,8 @@ export interface VortexCandleChartProps {  candles: Candle[];
   initialVisibleBars?: number;
   /** Pin time labels to a market timezone, e.g. "America/New_York" */
   timeZone?: string;
+  /** Allow direct manipulation dragging past dataset boundaries */
+  allowOverscroll?: boolean;
   theme?: VortexThemeOverride;
 }
 
@@ -88,6 +90,7 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
   zones,
   viewportMode = "reset",
   initialVisibleBars,
+  allowOverscroll = true,
   timeZone,
   theme = {},
 }) => {
@@ -121,13 +124,17 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
     [theme.colors]
   );
 
+  const span = Math.max(1, viewport.endIndex - viewport.startIndex + 1);
+  const candleSliceStart = Math.max(0, Math.min(viewport.startIndex, sortedCandles.length - 1));
+  const candleSliceEnd = Math.max(candleSliceStart, Math.min(viewport.endIndex, sortedCandles.length - 1));
+
   // Slice visible candles according to viewport
   const visibleCandles = useMemo(() => {
     if (sortedCandles.length === 0) return [];
-    const start = Math.max(0, Math.min(viewport.startIndex, sortedCandles.length - 1));
-    const end = Math.max(start, Math.min(viewport.endIndex, sortedCandles.length - 1));
-    return sortedCandles.slice(start, end + 1);
-  }, [sortedCandles, viewport.startIndex, viewport.endIndex]);
+    return sortedCandles.slice(candleSliceStart, candleSliceEnd + 1);
+  }, [sortedCandles, candleSliceStart, candleSliceEnd]);
+
+  const slotOffset = sortedCandles.length > 0 ? candleSliceStart - viewport.startIndex : 0;
 
   // Compute adaptive bounds from visible window (auto-scale vertical price axis)
   const bounds = useMemo(() => {
@@ -212,20 +219,21 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
   // Generate bottom time labels for visible slice
   const timeLabels = useMemo(() => {
     if (visibleCandles.length === 0) return [];
-    const count = visibleCandles.length;
     const maxLabels = Math.max(3, Math.min(6, Math.floor(containerWidth / 120)));
-    const step = Math.max(1, Math.floor(count / maxLabels));
+    const step = Math.max(1, Math.floor(visibleCandles.length / maxLabels));
 
     const labels: { x: number; text: string }[] = [];
-    for (let i = 0; i < count; i += step) {
+    for (let i = 0; i < visibleCandles.length; i += step) {
       const c = visibleCandles[i];
       const x = timeScaleMapping
         ? timeToX(c.t, timeScaleMapping, chartBounds)
-        : indexToX(i, count, chartBounds);
-      labels.push({ x, text: formatCandleTime(c.t, isIntraday, timeZone) });
+        : indexToX(slotOffset + i, span, chartBounds);
+      if (x >= chartBounds.padding.left && x <= chartBounds.chartWidth - chartBounds.padding.right) {
+        labels.push({ x, text: formatCandleTime(c.t, isIntraday, timeZone) });
+      }
     }
     return labels;
-  }, [visibleCandles, containerWidth, chartBounds, isIntraday, timeScaleMapping, timeZone]);
+  }, [visibleCandles, containerWidth, chartBounds, isIntraday, timeScaleMapping, timeZone, slotOffset, span]);
 
   const handleReset = () => {
     resetView();
@@ -238,9 +246,12 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
       canvasRef,
       bounds: chartBounds,
       visible: visibleCandles,
+      slotCount: span,
+      slotOffset,
       indexOffset: viewport.startIndex,
       timeScale: timeScaleMapping,
       panZoom: true,
+      allowOverscroll,
       viewport,
       onViewportChange: setViewport,
       priceScaleRatio,
@@ -257,7 +268,7 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
     onRemoteTime: setRemoteHoverTime,
   });
 
-  // â”€â”€ Main canvas: redraw ONLY when data / viewport / size changes (not on hover) â”€â”€
+  // ── Main canvas: redraw ONLY when data / viewport / size changes (not on hover) ──
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -271,7 +282,7 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
     // 1. Grid & Axes
     drawGridAndAxes(ctx, chartBounds, timeLabels);
 
-    // 2. Zones behind candles (FVG gaps, imbalancesâ€¦) â€” drawn before candles
+    // 2. Zones behind candles (FVG gaps, imbalances…) — drawn before candles
     if (zones && zones.length > 0) {
       drawChartZones(ctx, chartBounds, zones, visibleCandles);
     }
@@ -285,7 +296,9 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
         upColor: mergedColors.bullish,
         downColor: mergedColors.bearish,
       },
-      timeScaleMapping
+      timeScaleMapping,
+      slotOffset,
+      span
     );
 
     // 4. Price Lines & Right Badges
@@ -295,7 +308,7 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
     if (showWatermark) {
       drawVortexWatermark(ctx, chartBounds);
     }
-  }, [containerWidth, height, dpr, chartBounds, visibleCandles, allLines, timeLabels, timeScaleMapping, zones, showWatermark, mergedColors, canvasRef]);
+  }, [containerWidth, height, dpr, chartBounds, visibleCandles, allLines, timeLabels, timeScaleMapping, zones, showWatermark, mergedColors, canvasRef, slotOffset, span]);
 
   // â”€â”€ Overlay canvas: lightweight crosshair + ruler, redrawn on hover only â”€â”€
   useEffect(() => {
