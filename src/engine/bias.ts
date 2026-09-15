@@ -15,6 +15,7 @@ export interface DrawBiasOptions {
   showEquilibrium?: boolean;
   showBeacon?: boolean;
   showGrid?: boolean;
+  baselinePoints?: WhaleBiasPoint[];
 }
 
 export const DEFAULT_BIAS_PADDING: ViewportPadding = {
@@ -123,6 +124,7 @@ export function drawWhaleBiasChart(
     showEquilibrium = true,
     showBeacon = true,
     showGrid = true,
+    baselinePoints,
   } = options;
 
   const { padding, plotWidth, plotHeight, chartWidth, chartHeight } = bounds;
@@ -196,6 +198,21 @@ export function drawWhaleBiasChart(
 
   const first = coords[0];
   const last = coords[coords.length - 1];
+
+  // 1b. Secondary Baseline Curve (e.g. 1D cumulative anchor)
+  if (baselinePoints && baselinePoints.length >= 2) {
+    const baseCoords = getBiasPointCoords(baselinePoints, bounds);
+    if (baseCoords.length >= 2) {
+      ctx.save();
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = "rgba(148, 163, 184, 0.45)"; // subtle dashed slate
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      traceBiasSpline(ctx, baseCoords);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
 
   // 2. Dual Split Gradient Fills
   // ── A. Upper Area (Bullish, above 50%) ──

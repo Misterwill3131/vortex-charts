@@ -6738,7 +6738,8 @@ function drawWhaleBiasChart(ctx, points, bounds, options = {}) {
     lineWidth = 2.5,
     showEquilibrium = true,
     showBeacon = true,
-    showGrid = true
+    showGrid = true,
+    baselinePoints
   } = options;
   const { padding, plotWidth, plotHeight, chartWidth, chartHeight } = bounds;
   const rightAxisX = chartWidth - padding.right;
@@ -6794,6 +6795,19 @@ function drawWhaleBiasChart(ctx, points, bounds, options = {}) {
   }
   const first = coords[0];
   const last = coords[coords.length - 1];
+  if (baselinePoints && baselinePoints.length >= 2) {
+    const baseCoords = getBiasPointCoords(baselinePoints, bounds);
+    if (baseCoords.length >= 2) {
+      ctx.save();
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = "rgba(148, 163, 184, 0.45)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      traceBiasSpline(ctx, baseCoords);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
   ctx.save();
   ctx.beginPath();
   ctx.rect(padding.left, padding.top, plotWidth, Math.max(0, yEq - padding.top));
@@ -6881,6 +6895,7 @@ var VortexWhaleBiasChart = ({
   label,
   showWatermark = false,
   showEquilibrium = true,
+  baselinePoints,
   theme = {}
 }) => {
   const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
@@ -6891,6 +6906,12 @@ var VortexWhaleBiasChart = ({
       (a, b) => a.scannedAt - b.scannedAt
     );
   }, [points]);
+  const sortedBaseline = useMemo22(() => {
+    if (!baselinePoints || baselinePoints.length === 0) return void 0;
+    return Array.from(new Map(baselinePoints.map((p) => [p.scannedAt, p])).values()).sort(
+      (a, b) => a.scannedAt - b.scannedAt
+    );
+  }, [baselinePoints]);
   const bounds = useMemo22(() => {
     return computeBiasBounds(containerWidth, height);
   }, [containerWidth, height]);
@@ -6913,7 +6934,8 @@ var VortexWhaleBiasChart = ({
       lineWidth: 2.5,
       showEquilibrium,
       showBeacon: true,
-      showGrid: true
+      showGrid: true,
+      baselinePoints: sortedBaseline
     });
     if (showWatermark) {
       drawVortexWatermark(ctx, bounds);
@@ -6980,6 +7002,19 @@ var VortexWhaleBiasChart = ({
   };
   const activeCoord = hoverIdx !== null && coords[hoverIdx] ? coords[hoverIdx] : null;
   const activePoint = activeCoord?.point ?? null;
+  const activeBaseline = useMemo22(() => {
+    if (!activePoint || !sortedBaseline || sortedBaseline.length === 0) return null;
+    let closest = sortedBaseline[0];
+    let minDiff = Math.abs(closest.scannedAt - activePoint.scannedAt);
+    for (let i = 1; i < sortedBaseline.length; i++) {
+      const diff = Math.abs(sortedBaseline[i].scannedAt - activePoint.scannedAt);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = sortedBaseline[i];
+      }
+    }
+    return minDiff <= 60 * 60 * 1e3 ? closest : null;
+  }, [activePoint, sortedBaseline]);
   const tooltipStyle = useMemo22(() => {
     if (!activeCoord || containerWidth <= 0) return {};
     const pctLeft = activeCoord.x / containerWidth * 100;
@@ -7060,7 +7095,14 @@ var VortexWhaleBiasChart = ({
                       className: "h-full rounded-full bg-emerald-400 transition-all duration-75",
                       style: { width: `${activePoint.callPct}%` }
                     }
-                  ) })
+                  ) }),
+                  activeBaseline && /* @__PURE__ */ jsxs24("div", { className: "flex items-center justify-between text-[10px] text-zinc-400 border-t border-white/10 pt-1 mt-1", children: [
+                    /* @__PURE__ */ jsx24("span", { children: "1D Cumul:" }),
+                    /* @__PURE__ */ jsxs24("span", { className: "text-zinc-300 font-semibold", children: [
+                      activeBaseline.callPct,
+                      "%"
+                    ] })
+                  ] })
                 ] })
               ]
             }

@@ -822,6 +822,7 @@ interface DrawBiasOptions {
     showEquilibrium?: boolean;
     showBeacon?: boolean;
     showGrid?: boolean;
+    baselinePoints?: WhaleBiasPoint[];
 }
 /**
  * Computes standard 0-100% chart bounds tailored for bias / ratio indicators.
@@ -853,6 +854,8 @@ interface VortexWhaleBiasChartProps {
     showWatermark?: boolean;
     /** Whether to show the 50% equilibrium threshold line */
     showEquilibrium?: boolean;
+    /** Optional secondary baseline points (e.g. 1D cumulative reference) drawn as subtle dashed line */
+    baselinePoints?: WhaleBiasPoint[];
     /** Color/theme overrides */
     theme?: VortexThemeOverride;
 }

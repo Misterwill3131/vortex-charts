@@ -24,6 +24,8 @@ export interface VortexWhaleBiasChartProps {
   showWatermark?: boolean;
   /** Whether to show the 50% equilibrium threshold line */
   showEquilibrium?: boolean;
+  /** Optional secondary baseline points (e.g. 1D cumulative reference) drawn as subtle dashed line */
+  baselinePoints?: WhaleBiasPoint[];
   /** Color/theme overrides */
   theme?: VortexThemeOverride;
 }
@@ -35,6 +37,7 @@ export const VortexWhaleBiasChart: React.FC<VortexWhaleBiasChartProps> = ({
   label,
   showWatermark = false,
   showEquilibrium = true,
+  baselinePoints,
   theme = {},
 }) => {
   const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
@@ -47,6 +50,13 @@ export const VortexWhaleBiasChart: React.FC<VortexWhaleBiasChartProps> = ({
       (a, b) => a.scannedAt - b.scannedAt
     );
   }, [points]);
+
+  const sortedBaseline = useMemo(() => {
+    if (!baselinePoints || baselinePoints.length === 0) return undefined;
+    return Array.from(new Map(baselinePoints.map((p) => [p.scannedAt, p])).values()).sort(
+      (a, b) => a.scannedAt - b.scannedAt
+    );
+  }, [baselinePoints]);
 
   const bounds = useMemo(() => {
     return computeBiasBounds(containerWidth, height);
@@ -78,6 +88,7 @@ export const VortexWhaleBiasChart: React.FC<VortexWhaleBiasChartProps> = ({
       showEquilibrium,
       showBeacon: true,
       showGrid: true,
+      baselinePoints: sortedBaseline,
     });
 
     if (showWatermark) {
@@ -166,6 +177,20 @@ export const VortexWhaleBiasChart: React.FC<VortexWhaleBiasChartProps> = ({
   const activeCoord = hoverIdx !== null && coords[hoverIdx] ? coords[hoverIdx] : null;
   const activePoint = activeCoord?.point ?? null;
 
+  const activeBaseline = useMemo(() => {
+    if (!activePoint || !sortedBaseline || sortedBaseline.length === 0) return null;
+    let closest = sortedBaseline[0];
+    let minDiff = Math.abs(closest.scannedAt - activePoint.scannedAt);
+    for (let i = 1; i < sortedBaseline.length; i++) {
+      const diff = Math.abs(sortedBaseline[i].scannedAt - activePoint.scannedAt);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = sortedBaseline[i];
+      }
+    }
+    return minDiff <= 60 * 60 * 1000 ? closest : null;
+  }, [activePoint, sortedBaseline]);
+
   // Tooltip horizontal alignment
   const tooltipStyle = useMemo(() => {
     if (!activeCoord || containerWidth <= 0) return {};
@@ -242,6 +267,12 @@ export const VortexWhaleBiasChart: React.FC<VortexWhaleBiasChartProps> = ({
                   style={{ width: `${activePoint.callPct}%` }}
                 />
               </div>
+              {activeBaseline && (
+                <div className="flex items-center justify-between text-[10px] text-zinc-400 border-t border-white/10 pt-1 mt-1">
+                  <span>1D Cumul:</span>
+                  <span className="text-zinc-300 font-semibold">{activeBaseline.callPct}%</span>
+                </div>
+              )}
             </div>
           </div>
         )}
