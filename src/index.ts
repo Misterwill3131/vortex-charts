@@ -20,6 +20,7 @@ export { VortexWaterfallChart, type VortexWaterfallChartProps } from "./componen
 export { VortexRadarChart, type VortexRadarChartProps } from "./components/VortexRadarChart";
 export { VortexPieChart, type VortexPieChartProps } from "./components/VortexPieChart";
 export { VortexChoroplethMap, type VortexChoroplethMapProps } from "./components/VortexChoroplethMap";
+export { VortexWhaleBiasChart, type VortexWhaleBiasChartProps } from "./components/VortexWhaleBiasChart";
 export { VortexChartControls, type VortexChartControlsProps } from "./components/VortexChartControls";
 
 // Engine & Interactive Tools
@@ -79,6 +80,7 @@ export { drawWaterfallChart, type WaterfallBar, type DrawWaterfallOptions } from
 export { drawRadarChart, type RadarDimension, type RadarSeries, type DrawRadarOptions } from "./engine/radar";
 export { drawPieChart, type PieSlice, type DrawPieOptions } from "./engine/pie";
 export { drawChoropleth, type GeoRegion, type GeoPolygon, type DrawChoroplethOptions } from "./engine/choropleth";
+export { drawWhaleBiasChart, computeBiasBounds, getBiasPointCoords, type WhaleBiasPoint, type DrawBiasOptions } from "./engine/bias";
 
 // Branding & Watermark
 export { drawVortexWatermark, VortexWatermarkOverlay } from "./engine/watermark";

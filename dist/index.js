@@ -6666,6 +6666,411 @@ var VortexChoroplethMap = ({
     }
   );
 };
+
+// src/components/VortexWhaleBiasChart.tsx
+import { useEffect as useEffect26, useMemo as useMemo22, useState as useState23 } from "react";
+
+// src/engine/bias.ts
+var DEFAULT_BIAS_PADDING = {
+  top: 14,
+  bottom: 22,
+  left: 38,
+  right: 18
+};
+function computeBiasBounds(width, height, padding = DEFAULT_BIAS_PADDING) {
+  const minPrice = 0;
+  const maxPrice = 100;
+  const priceRange = 100;
+  const plotWidth = Math.max(width - padding.left - padding.right, 10);
+  const plotHeight = Math.max(height - padding.top - padding.bottom, 10);
+  return {
+    minPrice,
+    maxPrice,
+    priceRange,
+    chartWidth: width,
+    chartHeight: height,
+    plotWidth,
+    plotHeight,
+    padding
+  };
+}
+function getBiasPointCoords(points, bounds) {
+  if (points.length === 0) return [];
+  const t0 = points[0].scannedAt;
+  const t1 = points[points.length - 1].scannedAt || t0 + 1;
+  const span = Math.max(1, t1 - t0);
+  return points.map((p) => {
+    const frac = (p.scannedAt - t0) / span;
+    const x = bounds.padding.left + frac * bounds.plotWidth;
+    const y = priceToY(Math.max(0, Math.min(100, p.callPct)), bounds);
+    return { x, y, point: p };
+  });
+}
+function traceBiasSpline(ctx, coords) {
+  if (coords.length < 2) return;
+  if (coords.length === 2) {
+    ctx.moveTo(coords[0].x, coords[0].y);
+    ctx.lineTo(coords[1].x, coords[1].y);
+    return;
+  }
+  ctx.moveTo(coords[0].x, coords[0].y);
+  for (let i = 0; i < coords.length - 1; i++) {
+    const p0 = coords[Math.max(0, i - 1)];
+    const p1 = coords[i];
+    const p2 = coords[i + 1];
+    const p3 = coords[Math.min(coords.length - 1, i + 2)];
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+  }
+}
+function formatBiasTime(ms) {
+  return new Date(ms).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+}
+function drawWhaleBiasChart(ctx, points, bounds, options = {}) {
+  if (!points || points.length < 2) return;
+  const {
+    bullishColor = "#10b981",
+    bearishColor = "#f43f5e",
+    equilibriumValue = 50,
+    lineWidth = 2.5,
+    showEquilibrium = true,
+    showBeacon = true,
+    showGrid = true
+  } = options;
+  const { padding, plotWidth, plotHeight, chartWidth, chartHeight } = bounds;
+  const rightAxisX = chartWidth - padding.right;
+  const bottomAxisY = chartHeight - padding.bottom;
+  const yEq = priceToY(equilibriumValue, bounds);
+  const coords = getBiasPointCoords(points, bounds);
+  if (coords.length < 2) return;
+  ctx.save();
+  if (showGrid) {
+    const gridLevels = [0, 25, 50, 75, 100];
+    gridLevels.forEach((lvl) => {
+      const y = priceToY(lvl, bounds);
+      const isEq = lvl === equilibriumValue;
+      ctx.beginPath();
+      ctx.strokeStyle = isEq ? "rgba(255, 255, 255, 0.18)" : "rgba(255, 255, 255, 0.04)";
+      ctx.lineWidth = isEq ? 1.5 : 1;
+      if (isEq) {
+        ctx.setLineDash([5, 4]);
+      } else {
+        ctx.setLineDash([]);
+      }
+      ctx.moveTo(padding.left, y);
+      ctx.lineTo(rightAxisX, y);
+      ctx.stroke();
+      if (lvl === 0 || lvl === 50 || lvl === 100) {
+        ctx.font = "bold 9px Inter, -apple-system, sans-serif";
+        ctx.fillStyle = "#71717a";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+        ctx.fillText(`${lvl}%`, padding.left - 6, y);
+      }
+    });
+    ctx.setLineDash([]);
+    if (showEquilibrium) {
+      ctx.font = "bold 8px Inter, -apple-system, sans-serif";
+      ctx.fillStyle = "rgba(255, 255, 255, 0.32)";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "bottom";
+      ctx.fillText(`${equilibriumValue}% EQUILIBRIUM`, rightAxisX, yEq - 4);
+    }
+    const t0 = points[0].scannedAt;
+    const t1 = points[points.length - 1].scannedAt;
+    const tMid = t0 + (t1 - t0) / 2;
+    ctx.font = "500 9px Inter, -apple-system, sans-serif";
+    ctx.fillStyle = "#71717a";
+    ctx.textBaseline = "top";
+    ctx.textAlign = "left";
+    ctx.fillText(formatBiasTime(t0), padding.left, bottomAxisY + 6);
+    ctx.textAlign = "center";
+    ctx.fillText(formatBiasTime(tMid), padding.left + plotWidth / 2, bottomAxisY + 6);
+    ctx.textAlign = "right";
+    ctx.fillText(formatBiasTime(t1), rightAxisX, bottomAxisY + 6);
+  }
+  const first = coords[0];
+  const last = coords[coords.length - 1];
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(padding.left, padding.top, plotWidth, Math.max(0, yEq - padding.top));
+  ctx.clip();
+  ctx.beginPath();
+  traceBiasSpline(ctx, coords);
+  ctx.lineTo(last.x, yEq);
+  ctx.lineTo(first.x, yEq);
+  ctx.closePath();
+  const gradUpper = ctx.createLinearGradient(0, padding.top, 0, yEq);
+  gradUpper.addColorStop(0, colorWithAlpha(bullishColor, 0.22));
+  gradUpper.addColorStop(1, colorWithAlpha(bullishColor, 0.02));
+  ctx.fillStyle = gradUpper;
+  ctx.fill();
+  ctx.restore();
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(padding.left, yEq, plotWidth, Math.max(0, bottomAxisY - yEq));
+  ctx.clip();
+  ctx.beginPath();
+  traceBiasSpline(ctx, coords);
+  ctx.lineTo(last.x, yEq);
+  ctx.lineTo(first.x, yEq);
+  ctx.closePath();
+  const gradLower = ctx.createLinearGradient(0, yEq, 0, bottomAxisY);
+  gradLower.addColorStop(0, colorWithAlpha(bearishColor, 0.02));
+  gradLower.addColorStop(1, colorWithAlpha(bearishColor, 0.22));
+  ctx.fillStyle = gradLower;
+  ctx.fill();
+  ctx.restore();
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(padding.left - 4, padding.top - 4, plotWidth + 8, Math.max(0, yEq - padding.top + 4));
+  ctx.clip();
+  ctx.shadowColor = colorWithAlpha(bullishColor, 0.65);
+  ctx.shadowBlur = 7;
+  ctx.strokeStyle = bullishColor;
+  ctx.lineWidth = lineWidth;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  traceBiasSpline(ctx, coords);
+  ctx.stroke();
+  ctx.restore();
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(padding.left - 4, yEq, plotWidth + 8, Math.max(0, bottomAxisY - yEq + 4));
+  ctx.clip();
+  ctx.shadowColor = colorWithAlpha(bearishColor, 0.65);
+  ctx.shadowBlur = 7;
+  ctx.strokeStyle = bearishColor;
+  ctx.lineWidth = lineWidth;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  traceBiasSpline(ctx, coords);
+  ctx.stroke();
+  ctx.restore();
+  if (showBeacon && coords.length > 0) {
+    const isBull = last.point.callPct >= equilibriumValue;
+    const beaconColor = isBull ? bullishColor : bearishColor;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(last.x, last.y, 6, 0, Math.PI * 2);
+    ctx.fillStyle = colorWithAlpha(beaconColor, 0.25);
+    ctx.fill();
+    ctx.strokeStyle = colorWithAlpha(beaconColor, 0.85);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(last.x, last.y, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// src/components/VortexWhaleBiasChart.tsx
+import { jsx as jsx24, jsxs as jsxs24 } from "react/jsx-runtime";
+var VortexWhaleBiasChart = ({
+  points,
+  height = 180,
+  className = "",
+  label,
+  showWatermark = false,
+  showEquilibrium = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const [hoverIdx, setHoverIdx] = useState23(null);
+  const sortedPoints = useMemo22(() => {
+    if (!points || points.length === 0) return [];
+    return Array.from(new Map(points.map((p) => [p.scannedAt, p])).values()).sort(
+      (a, b) => a.scannedAt - b.scannedAt
+    );
+  }, [points]);
+  const bounds = useMemo22(() => {
+    return computeBiasBounds(containerWidth, height);
+  }, [containerWidth, height]);
+  const coords = useMemo22(() => {
+    return getBiasPointCoords(sortedPoints, bounds);
+  }, [sortedPoints, bounds]);
+  const bullishColor = theme.colors?.bullish ?? "#10b981";
+  const bearishColor = theme.colors?.bearish ?? "#f43f5e";
+  useEffect26(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || sortedPoints.length < 2) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawWhaleBiasChart(ctx, sortedPoints, bounds, {
+      bullishColor,
+      bearishColor,
+      equilibriumValue: 50,
+      lineWidth: 2.5,
+      showEquilibrium,
+      showBeacon: true,
+      showGrid: true
+    });
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, sortedPoints, bounds, bullishColor, bearishColor, showEquilibrium, showWatermark, canvasRef]);
+  useEffect26(() => {
+    const overlay = overlayRef.current;
+    if (!overlay) return;
+    const setup = setupCanvasDpi(overlay, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    if (hoverIdx !== null && coords[hoverIdx]) {
+      const active = coords[hoverIdx];
+      const isBull = active.point.callPct >= 50;
+      const dotColor = isBull ? bullishColor : bearishColor;
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+      ctx.lineWidth = 1;
+      ctx.moveTo(active.x, bounds.padding.top);
+      ctx.lineTo(active.x, bounds.chartHeight - bounds.padding.bottom);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.setLineDash([2, 3]);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+      ctx.moveTo(bounds.padding.left, active.y);
+      ctx.lineTo(active.x, active.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(active.x, active.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = isBull ? "rgba(16, 185, 129, 0.3)" : "rgba(244, 63, 94, 0.3)";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(active.x, active.y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = dotColor;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(active.x, active.y, 2, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+      ctx.restore();
+    }
+  }, [overlayRef, containerWidth, height, bounds, hoverIdx, coords, bullishColor, bearishColor]);
+  const handlePointerMove = (e) => {
+    if (coords.length < 2) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    let closestIdx = 0;
+    let minDiff = Infinity;
+    for (let i = 0; i < coords.length; i++) {
+      const diff = Math.abs(coords[i].x - mouseX);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIdx = i;
+      }
+    }
+    setHoverIdx(closestIdx);
+  };
+  const handlePointerLeave = () => {
+    setHoverIdx(null);
+  };
+  const activeCoord = hoverIdx !== null && coords[hoverIdx] ? coords[hoverIdx] : null;
+  const activePoint = activeCoord?.point ?? null;
+  const tooltipStyle = useMemo22(() => {
+    if (!activeCoord || containerWidth <= 0) return {};
+    const pctLeft = activeCoord.x / containerWidth * 100;
+    let translateX = "-50%";
+    if (pctLeft < 18) translateX = "0%";
+    if (pctLeft > 82) translateX = "-100%";
+    return {
+      left: `${pctLeft}%`,
+      transform: `translateX(${translateX})`
+    };
+  }, [activeCoord, containerWidth]);
+  if (sortedPoints.length < 2) {
+    return /* @__PURE__ */ jsx24(
+      "div",
+      {
+        className: `flex items-center justify-center rounded-2xl border border-white/[0.08] bg-black/40 p-4 text-xs text-zinc-400 ${className}`,
+        style: { height },
+        children: "No intraday whale history yet for this ticker (data accrues during active market hours)."
+      }
+    );
+  }
+  return /* @__PURE__ */ jsxs24("div", { className: `space-y-1.5 ${className}`, children: [
+    /* @__PURE__ */ jsxs24(
+      "div",
+      {
+        ref: containerRef,
+        className: "relative w-full overflow-hidden select-none rounded-2xl border border-white/[0.08] bg-black/40 p-1 backdrop-blur-md",
+        style: { height },
+        children: [
+          /* @__PURE__ */ jsx24(
+            "canvas",
+            {
+              ref: canvasRef,
+              className: "block h-full w-full cursor-crosshair",
+              style: { touchAction: "none" }
+            }
+          ),
+          /* @__PURE__ */ jsx24(
+            "canvas",
+            {
+              ref: overlayRef,
+              onPointerMove: handlePointerMove,
+              onPointerLeave: handlePointerLeave,
+              className: "absolute inset-0 block h-full w-full cursor-crosshair",
+              style: { touchAction: "none" }
+            }
+          ),
+          activePoint && /* @__PURE__ */ jsxs24(
+            "div",
+            {
+              className: "pointer-events-none absolute top-2 z-20 rounded-xl border border-white/15 bg-[#0b0c10]/95 px-3 py-2 text-xs shadow-2xl backdrop-blur-xl transition-all",
+              style: tooltipStyle,
+              children: [
+                /* @__PURE__ */ jsxs24("div", { className: "flex items-center gap-2 border-b border-white/10 pb-1 font-bold text-white", children: [
+                  /* @__PURE__ */ jsx24("span", { children: formatBiasTime(activePoint.scannedAt) }),
+                  /* @__PURE__ */ jsx24(
+                    "span",
+                    {
+                      className: `text-[10px] px-1.5 py-0.5 rounded font-bold ${activePoint.callPct >= 55 ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : activePoint.callPct <= 45 ? "bg-rose-500/20 text-rose-300 border border-rose-500/30" : "bg-amber-500/20 text-amber-300 border border-amber-500/30"}`,
+                      children: activePoint.callPct >= 55 ? "Bullish" : activePoint.callPct <= 45 ? "Bearish" : "Neutral"
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxs24("div", { className: "mt-1.5 space-y-1 tabular-nums", children: [
+                  /* @__PURE__ */ jsxs24("div", { className: "flex items-center justify-between gap-4 text-[11px]", children: [
+                    /* @__PURE__ */ jsxs24("span", { className: "font-semibold text-emerald-400", children: [
+                      activePoint.callPct,
+                      "% Calls"
+                    ] }),
+                    /* @__PURE__ */ jsxs24("span", { className: "font-semibold text-rose-400", children: [
+                      100 - activePoint.callPct,
+                      "% Puts"
+                    ] })
+                  ] }),
+                  /* @__PURE__ */ jsx24("div", { className: "h-1.5 w-32 overflow-hidden rounded-full bg-rose-500/30", children: /* @__PURE__ */ jsx24(
+                    "div",
+                    {
+                      className: "h-full rounded-full bg-emerald-400 transition-all duration-75",
+                      style: { width: `${activePoint.callPct}%` }
+                    }
+                  ) })
+                ] })
+              ]
+            }
+          )
+        ]
+      }
+    ),
+    label && /* @__PURE__ */ jsx24("div", { className: "text-[11px] text-zinc-400 font-medium px-1", children: label })
+  ] });
+};
 export {
   VORTEX_THEME,
   VortexAreaChart,
@@ -6691,8 +7096,10 @@ export {
   VortexVolumeProfileChart,
   VortexWaterfallChart,
   VortexWatermarkOverlay,
+  VortexWhaleBiasChart,
   colorWithAlpha,
   computeBarBounds,
+  computeBiasBounds,
   computeBoxPlotStats,
   computeHeikinAshi,
   computePointAndFigure,
@@ -6724,11 +7131,13 @@ export {
   drawVolumeProfile,
   drawVortexWatermark,
   drawWaterfallChart,
+  drawWhaleBiasChart,
   followViewport,
   formatCandleTime,
   formatChange,
   formatPrice,
   formatVolume,
+  getBiasPointCoords,
   getVisibleCount,
   getZoomLevel,
   isViewportZoomed,
