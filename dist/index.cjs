@@ -7208,7 +7208,7 @@ var VortexWhaleBiasChart = ({
                     }
                   ) }),
                   activeBaseline && /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)("div", { className: "flex items-center justify-between text-[10px] text-zinc-400 border-t border-white/10 pt-1 mt-1", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("span", { children: "1D Cumul:" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("span", { children: "1D Cumulative:" }),
                     /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)("span", { className: "text-zinc-300 font-semibold", children: [
                       Math.round(activeBaseline.callPct * 10) / 10,
                       "%"

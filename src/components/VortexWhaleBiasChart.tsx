@@ -273,7 +273,7 @@ export const VortexWhaleBiasChart: React.FC<VortexWhaleBiasChartProps> = ({
               </div>
               {activeBaseline && (
                 <div className="flex items-center justify-between text-[10px] text-zinc-400 border-t border-white/10 pt-1 mt-1">
-                  <span>1D Cumul:</span>
+                  <span>1D Cumulative:</span>
                   <span className="text-zinc-300 font-semibold">
                     {Math.round(activeBaseline.callPct * 10) / 10}%
                   </span>
