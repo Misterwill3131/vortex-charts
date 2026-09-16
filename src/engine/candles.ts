@@ -24,18 +24,20 @@ export function drawCandlesticks(
   if (candles.length === 0) return;
 
   const count = slotCount ?? candles.length;
-  const xOf = (idx: number): number =>
-    timeScale
+  const xOf = (idx: number): number => {
+    if (idx < 0 || idx >= candles.length) return bounds.padding.left;
+    return timeScale
       ? timeToX(candles[idx].t, timeScale, bounds)
       : indexToX(slotOffset + idx, count, bounds);
+  };
 
   // In time mode the body width derives from the smallest mapped gap between
   // consecutive candles, so dense sessions keep readable bodies while gaps
   // (weekends, market pauses) render as proportional empty space.
-  let slotWidth = bounds.plotWidth / count;
+  let slotWidth = bounds.plotWidth / Math.max(1, count);
   if (timeScale) {
     let minGap = Infinity;
-    for (let i = 1; i < count; i++) {
+    for (let i = 1; i < candles.length; i++) {
       const gap = xOf(i) - xOf(i - 1);
       if (gap > 0 && gap < minGap) minGap = gap;
     }

@@ -374,11 +374,14 @@ var DEFAULT_CANDLE_STYLE = {
 function drawCandlesticks(ctx, candles, bounds, style = DEFAULT_CANDLE_STYLE, timeScale, slotOffset = 0, slotCount) {
   if (candles.length === 0) return;
   const count = slotCount ?? candles.length;
-  const xOf = (idx) => timeScale ? timeToX(candles[idx].t, timeScale, bounds) : indexToX(slotOffset + idx, count, bounds);
-  let slotWidth = bounds.plotWidth / count;
+  const xOf = (idx) => {
+    if (idx < 0 || idx >= candles.length) return bounds.padding.left;
+    return timeScale ? timeToX(candles[idx].t, timeScale, bounds) : indexToX(slotOffset + idx, count, bounds);
+  };
+  let slotWidth = bounds.plotWidth / Math.max(1, count);
   if (timeScale) {
     let minGap = Infinity;
-    for (let i = 1; i < count; i++) {
+    for (let i = 1; i < candles.length; i++) {
       const gap = xOf(i) - xOf(i - 1);
       if (gap > 0 && gap < minGap) minGap = gap;
     }
@@ -1272,13 +1275,13 @@ function useChartPointer({
       const centerX = bounds.padding.left + bounds.plotWidth / 2;
       return { candle: null, snapX: centerX, price: yToPrice(mouseY, bounds), globalIndex: -1 };
     }
-    const candleIdx = slotOffset != null ? localIdx - slotOffset : localIdx;
+    const candleIdx = slotOffset != null && !timeScale ? localIdx - slotOffset : localIdx;
     const candle = candleIdx >= 0 && candleIdx < visible.length ? visible[candleIdx] : null;
     const snapX = Math.round(
       timeScale && candle ? timeToX(candle.t, timeScale, bounds) : indexToX(localIdx, count, bounds)
     );
     const price = yToPrice(mouseY, bounds);
-    const globalIndex = indexOffset + localIdx;
+    const globalIndex = timeScale && candle ? indexOffset + (candleIdx >= 0 ? candleIdx : 0) : indexOffset + localIdx;
     return { candle, snapX, price, globalIndex };
   };
   const handlePointerDown = (e) => {

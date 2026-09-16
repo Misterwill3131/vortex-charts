@@ -236,7 +236,7 @@ export function useChartPointer({
       const centerX = bounds.padding.left + bounds.plotWidth / 2;
       return { candle: null, snapX: centerX, price: yToPrice(mouseY, bounds), globalIndex: -1 };
     }
-    const candleIdx = slotOffset != null ? localIdx - slotOffset : localIdx;
+    const candleIdx = slotOffset != null && !timeScale ? localIdx - slotOffset : localIdx;
     const candle = (candleIdx >= 0 && candleIdx < visible.length) ? visible[candleIdx] : null;
     const snapX = Math.round(
       timeScale && candle
@@ -244,7 +244,9 @@ export function useChartPointer({
         : indexToX(localIdx, count, bounds)
     );
     const price = yToPrice(mouseY, bounds);
-    const globalIndex = indexOffset + localIdx;
+    const globalIndex = timeScale && candle
+      ? indexOffset + (candleIdx >= 0 ? candleIdx : 0)
+      : indexOffset + localIdx;
     return { candle, snapX, price, globalIndex };
   };
 
