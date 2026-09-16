@@ -1,4 +1,4 @@
-import type { ChartBounds } from "./coordinates";
+﻿import type { ChartBounds } from "./coordinates";
 
 export interface HeatmapData {
   xLabels: string[];
@@ -9,18 +9,42 @@ export interface HeatmapData {
 }
 
 export interface DrawHeatmapOptions {
-  colorScale?: "vortex" | "coolwarm" | "emerald";
+  colorScale?: "vortex" | "coolwarm" | "emerald" | "diverging";
   showValues?: boolean;
   cellPadding?: number;
   borderRadius?: number;
   hoveredCell?: { row: number; col: number } | null;
+  yAxisPosition?: "left" | "right";
+  formatValue?: (val: number) => string;
 }
 
 /**
  * Returns [r, g, b, a] for given normalized ratio
  */
-function getRgba(ratio: number, scale: "vortex" | "coolwarm" | "emerald"): [number, number, number, number] {
+function getRgba(
+  ratio: number,
+  scale: "vortex" | "coolwarm" | "emerald" | "diverging",
+  zeroRatio: number = 0.5
+): [number, number, number, number] {
   const r = Math.max(0, Math.min(1, ratio));
+
+  if (scale === "diverging") {
+    if (r < zeroRatio) {
+      const t = zeroRatio > 0 ? (zeroRatio - r) / zeroRatio : 0;
+      // Dark slate -> vibrant rose
+      const red = Math.round(20 * (1 - t) + 244 * t);
+      const green = Math.round(28 * (1 - t) + 63 * t);
+      const blue = Math.round(48 * (1 - t) + 94 * t);
+      return [red, green, blue, 0.35 + t * 0.55];
+    } else {
+      const t = zeroRatio < 1 ? (r - zeroRatio) / (1 - zeroRatio) : 0;
+      // Dark slate -> vibrant emerald
+      const red = Math.round(20 * (1 - t) + 16 * t);
+      const green = Math.round(28 * (1 - t) + 185 * t);
+      const blue = Math.round(48 * (1 - t) + 129 * t);
+      return [red, green, blue, 0.35 + t * 0.55];
+    }
+  }
 
   if (scale === "coolwarm") {
     const red = Math.round(244 * (1 - r) + 56 * r);
@@ -51,7 +75,7 @@ function getRgba(ratio: number, scale: "vortex" | "coolwarm" | "emerald"): [numb
 }
 
 /**
- * Pure Canvas 2D renderer for 2D Matrix Heatmaps (correlation, activity, volatility).
+ * Pure Canvas 2D renderer for 2D Matrix Heatmaps (correlation, activity, seasonality).
  */
 export function drawHeatmap(
   ctx: CanvasRenderingContext2D,
@@ -68,6 +92,8 @@ export function drawHeatmap(
     cellPadding = 2.5,
     borderRadius = 4,
     hoveredCell = null,
+    yAxisPosition = "right",
+    formatValue,
   } = options;
 
   const numRows = yLabels.length;
@@ -87,6 +113,7 @@ export function drawHeatmap(
   }
 
   const range = Math.max(max - min, 0.0001);
+  const zeroRatio = min < 0 && max > 0 ? (0 - min) / range : 0.5;
 
   const cellWidth = bounds.plotWidth / numCols;
   const cellHeight = bounds.plotHeight / numRows;
@@ -101,7 +128,7 @@ export function drawHeatmap(
     for (let c = 0; c < numCols; c++) {
       const val = values[r]?.[c] ?? 0;
       const norm = (val - min) / range;
-      const [cr, cg, cb, ca] = getRgba(norm, colorScale);
+      const [cr, cg, cb, ca] = getRgba(norm, colorScale, zeroRatio);
 
       const x = bounds.padding.left + c * cellWidth + cellPadding;
       const y = bounds.padding.top + r * cellHeight + cellPadding;
@@ -133,11 +160,12 @@ export function drawHeatmap(
         ctx.stroke();
       }
 
-      // Perceptual luminance calculation for high-contrast typography
+      // High-contrast value display
       if (showValues && w >= 22 && h >= 14) {
         const luminance = (0.299 * cr + 0.587 * cg + 0.114 * cb) * ca;
         ctx.fillStyle = luminance > 125 ? "#020616" : "#ffffff";
-        ctx.fillText(val.toFixed(2), x + w / 2, y + h / 2);
+        const text = formatValue ? formatValue(val) : val.toFixed(1);
+        ctx.fillText(text, x + w / 2, y + h / 2);
       }
     }
   }
@@ -147,18 +175,33 @@ export function drawHeatmap(
   ctx.font = "10px Inter, sans-serif";
 
   // X labels at bottom
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
   for (let c = 0; c < numCols; c++) {
     const x = bounds.padding.left + c * cellWidth + cellWidth / 2;
-    const y = bounds.chartHeight - bounds.padding.bottom + 14;
+    const y = bounds.chartHeight - bounds.padding.bottom + 10;
     ctx.fillText(xLabels[c] ?? "", x, y);
   }
 
-  // Y labels at right axis
-  ctx.textAlign = "left";
-  for (let r = 0; r < numRows; r++) {
-    const x = bounds.chartWidth - bounds.padding.right + 6;
-    const y = bounds.padding.top + r * cellHeight + cellHeight / 2;
-    ctx.fillText(yLabels[r] ?? "", x, y);
+  // Y labels at left or right
+  if (yAxisPosition === "left") {
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 11px Inter, monospace";
+    ctx.fillStyle = "#ffffff";
+    for (let r = 0; r < numRows; r++) {
+      const x = bounds.padding.left - 8;
+      const y = bounds.padding.top + r * cellHeight + cellHeight / 2;
+      ctx.fillText(yLabels[r] ?? "", x, y);
+    }
+  } else {
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    for (let r = 0; r < numRows; r++) {
+      const x = bounds.chartWidth - bounds.padding.right + 6;
+      const y = bounds.padding.top + r * cellHeight + cellHeight / 2;
+      ctx.fillText(yLabels[r] ?? "", x, y);
+    }
   }
 
   ctx.restore();

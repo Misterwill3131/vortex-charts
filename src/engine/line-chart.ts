@@ -13,6 +13,7 @@ export interface LineSeriesPoint {
 export interface DrawLineOptions {
   color?: string;
   lineWidth?: number;
+  strokeDash?: number[];
   showArea?: boolean;
   areaTopOpacity?: number;
   showPoints?: boolean;
@@ -129,6 +130,11 @@ export function drawLineChart(
     ctx.shadowColor = color;
     ctx.shadowBlur = 10;
   }
+  if (options.strokeDash && options.strokeDash.length > 0) {
+    ctx.setLineDash(options.strokeDash);
+  } else {
+    ctx.setLineDash([]);
+  }
   ctx.beginPath();
   if (smooth) {
     traceSmoothSpline(ctx, points);
@@ -144,6 +150,7 @@ export function drawLineChart(
   ctx.lineCap = "round";
   ctx.stroke();
 
+  ctx.setLineDash([]);
   ctx.shadowBlur = 0;
 
   // 3. Optional points

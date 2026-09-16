@@ -30,9 +30,11 @@ __export(index_exports, {
   VortexChoroplethMap: () => VortexChoroplethMap,
   VortexConeChart: () => VortexConeChart,
   VortexFootprintChart: () => VortexFootprintChart,
+  VortexGauge: () => VortexGauge,
   VortexHeatmap: () => VortexHeatmap,
   VortexHeikinAshiChart: () => VortexHeikinAshiChart,
   VortexLineChart: () => VortexLineChart,
+  VortexMultiAreaChart: () => VortexMultiAreaChart,
   VortexMultiLineChart: () => VortexMultiLineChart,
   VortexOhlcChart: () => VortexOhlcChart,
   VortexPieChart: () => VortexPieChart,
@@ -70,10 +72,12 @@ __export(index_exports, {
   drawGenericCrosshair: () => drawGenericCrosshair,
   drawHeatmap: () => drawHeatmap,
   drawLineChart: () => drawLineChart,
+  drawMultiAreaChart: () => drawMultiAreaChart,
   drawOhlcBars: () => drawOhlcBars,
   drawPieChart: () => drawPieChart,
   drawPointAndFigure: () => drawPointAndFigure,
   drawRadarChart: () => drawRadarChart,
+  drawRadialGauge: () => drawRadialGauge,
   drawRenkoBricks: () => drawRenkoBricks,
   drawRulerOverlay: () => drawRulerOverlay,
   drawScatterPlot: () => drawScatterPlot,
@@ -2763,7 +2767,7 @@ function drawBarChart(ctx, bounds, data, options) {
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(x + 0.5, padding.top);
-    ctx.lineTo(x + 0.5, yZero);
+    ctx.lineTo(x + 0.5, bottomAxisY);
     ctx.stroke();
     ctx.setLineDash([]);
     const text = ref.label;
@@ -2772,7 +2776,11 @@ function drawBarChart(ctx, bounds, data, options) {
     const pillX = Math.max(padding.left + 2, Math.min(rightAxisX - pillW - 2, x - pillW / 2));
     ctx.fillStyle = ref.color;
     ctx.beginPath();
-    ctx.roundRect(pillX, padding.top - 14, pillW, 12, 3);
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(pillX, padding.top - 14, pillW, 12, 3);
+    } else {
+      ctx.rect(pillX, padding.top - 14, pillW, 12);
+    }
     ctx.fill();
     ctx.fillStyle = "#020616";
     ctx.font = "bold 9px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
@@ -3092,6 +3100,11 @@ function drawLineChart(ctx, data, bounds, options = {}) {
     ctx.shadowColor = color;
     ctx.shadowBlur = 10;
   }
+  if (options.strokeDash && options.strokeDash.length > 0) {
+    ctx.setLineDash(options.strokeDash);
+  } else {
+    ctx.setLineDash([]);
+  }
   ctx.beginPath();
   if (smooth) {
     traceSmoothSpline(ctx, points);
@@ -3106,6 +3119,7 @@ function drawLineChart(ctx, data, bounds, options = {}) {
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   ctx.stroke();
+  ctx.setLineDash([]);
   ctx.shadowBlur = 0;
   if (showPoints) {
     for (const p of points) {
@@ -4864,7 +4878,10 @@ var VortexMultiLineChart = ({
   className = "",
   showPoints = false,
   showWatermark = true,
-  theme = {}
+  theme = {},
+  leftPriceFormatter,
+  rightPriceFormatter,
+  xAxisFormatter
 }) => {
   const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
   const [hoverIndex, setHoverIndex] = (0, import_react17.useState)(null);
@@ -4881,17 +4898,53 @@ var VortexMultiLineChart = ({
       return {
         name: s.name,
         color,
-        points
+        points,
+        yAxis: s.yAxis ?? "left",
+        strokeDash: s.strokeDash,
+        strokeWidth: s.strokeWidth
       };
     });
   }, [series]);
-  const bounds = (0, import_react17.useMemo)(() => {
-    const allPrices = [];
+  const hasRightAxis = (0, import_react17.useMemo)(() => {
+    return normalizedSeries.some((s) => s.yAxis === "right");
+  }, [normalizedSeries]);
+  const { leftBounds, rightBounds, bounds } = (0, import_react17.useMemo)(() => {
+    if (!hasRightAxis) {
+      const allPrices = [];
+      normalizedSeries.forEach((s) => {
+        s.points.forEach((p) => allPrices.push(p.price));
+      });
+      const singleBounds = computeBounds(allPrices, containerWidth, height, void 0, { allowZeroOrNegative: true });
+      return { leftBounds: singleBounds, rightBounds: singleBounds, bounds: singleBounds };
+    }
+    const dualPadding = {
+      top: 20,
+      bottom: 26,
+      left: 56,
+      right: 56
+    };
+    const leftPrices = [];
+    const rightPrices = [];
     normalizedSeries.forEach((s) => {
-      s.points.forEach((p) => allPrices.push(p.price));
+      const target = s.yAxis === "right" ? rightPrices : leftPrices;
+      s.points.forEach((p) => target.push(p.price));
     });
-    return computeBounds(allPrices, containerWidth, height);
-  }, [normalizedSeries, containerWidth, height]);
+    const lBounds = computeBounds(
+      leftPrices.length > 0 ? leftPrices : [0, 100],
+      containerWidth,
+      height,
+      dualPadding,
+      { allowZeroOrNegative: true }
+    );
+    const rBounds = computeBounds(
+      rightPrices.length > 0 ? rightPrices : [0, 100],
+      containerWidth,
+      height,
+      dualPadding,
+      { allowZeroOrNegative: true }
+    );
+    return { leftBounds: lBounds, rightBounds: rBounds, bounds: lBounds };
+  }, [normalizedSeries, containerWidth, height, hasRightAxis]);
   (0, import_react17.useEffect)(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -4899,12 +4952,61 @@ var VortexMultiLineChart = ({
     if (!setup) return;
     const { ctx } = setup;
     ctx.clearRect(0, 0, containerWidth, height);
-    drawGridAndAxes(ctx, bounds);
+    if (!hasRightAxis) {
+      drawGridAndAxes(ctx, bounds);
+    } else {
+      const { chartWidth, chartHeight, plotWidth, padding, minPrice, maxPrice, priceRange } = leftBounds;
+      const rightAxisX = chartWidth - padding.right;
+      const bottomAxisY = chartHeight - padding.bottom;
+      ctx.save();
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(padding.left - 0.5, padding.top);
+      ctx.lineTo(padding.left - 0.5, bottomAxisY);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(rightAxisX + 0.5, padding.top);
+      ctx.lineTo(rightAxisX + 0.5, bottomAxisY);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(padding.left, bottomAxisY + 0.5);
+      ctx.lineTo(rightAxisX, bottomAxisY + 0.5);
+      ctx.stroke();
+      const tickCount = 5;
+      const leftStep = priceRange / (tickCount + 1);
+      const rightStep = rightBounds.priceRange / (tickCount + 1);
+      ctx.setLineDash([3, 4]);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
+      ctx.font = "10px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+      for (let i = 1; i <= tickCount; i++) {
+        const lPrice = minPrice + i * leftStep;
+        const rPrice = rightBounds.minPrice + i * rightStep;
+        const y = Math.round(priceToY(lPrice, leftBounds));
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y + 0.5);
+        ctx.lineTo(rightAxisX, y + 0.5);
+        ctx.stroke();
+        ctx.fillStyle = "#10b981";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+        const lText = leftPriceFormatter ? leftPriceFormatter(lPrice) : `$${formatPrice(lPrice)}`;
+        ctx.fillText(lText, padding.left - 8, y);
+        ctx.fillStyle = "#fbbf24";
+        ctx.textAlign = "left";
+        const rText = rightPriceFormatter ? rightPriceFormatter(rPrice) : `$${formatPrice(rPrice)}`;
+        ctx.fillText(rText, rightAxisX + 8, y);
+      }
+      ctx.restore();
+    }
     normalizedSeries.forEach((s) => {
-      drawLineChart(ctx, s.points, bounds, {
+      const seriesBounds = s.yAxis === "right" ? rightBounds : leftBounds;
+      drawLineChart(ctx, s.points, seriesBounds, {
         color: s.color,
         showArea: false,
         showPoints,
+        strokeDash: s.strokeDash,
+        lineWidth: s.strokeWidth ?? 2,
         glow: true,
         smooth: true
       });
@@ -4912,7 +5014,7 @@ var VortexMultiLineChart = ({
     if (showWatermark) {
       drawVortexWatermark(ctx, bounds);
     }
-  }, [containerWidth, height, bounds, normalizedSeries, showPoints, showWatermark, theme, canvasRef]);
+  }, [containerWidth, height, bounds, leftBounds, rightBounds, normalizedSeries, showPoints, showWatermark, hasRightAxis, leftPriceFormatter, rightPriceFormatter, theme, canvasRef]);
   const maxPoints = Math.max(0, ...normalizedSeries.map((s) => s.points.length));
   (0, import_react17.useEffect)(() => {
     const overlay = overlayRef.current;
@@ -4936,7 +5038,8 @@ var VortexMultiLineChart = ({
       normalizedSeries.forEach((s) => {
         const pt = s.points[hoverIndex];
         if (!pt) return;
-        const snapY = priceToY(pt.price, bounds);
+        const seriesBounds = s.yAxis === "right" ? rightBounds : leftBounds;
+        const snapY = priceToY(pt.price, seriesBounds);
         ctx.beginPath();
         ctx.arc(snapX, snapY, 6, 0, Math.PI * 2);
         ctx.fillStyle = s.color;
@@ -4954,8 +5057,9 @@ var VortexMultiLineChart = ({
       ctx.fillStyle = "#1e293b";
       ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
       ctx.lineWidth = 1;
-      const labelText = `Day ${hoverIndex + 1}`;
-      const badgeW = 60;
+      const firstPt2 = normalizedSeries[0]?.points[hoverIndex];
+      const labelText = xAxisFormatter ? xAxisFormatter(hoverIndex) : firstPt2?.label && !firstPt2.label.startsWith("Point ") ? firstPt2.label : `Timeline #${hoverIndex + 1}`;
+      const badgeW = Math.max(64, labelText.length * 7.5);
       const badgeH = 16;
       const badgeX = Math.round(snapX - badgeW / 2);
       const badgeY = bottomAxisY + 4;
@@ -4974,7 +5078,7 @@ var VortexMultiLineChart = ({
       ctx.fillText(labelText, badgeX + badgeW / 2, badgeY + badgeH / 2);
       ctx.restore();
     }
-  }, [overlayRef, containerWidth, height, bounds, hoverIndex, maxPoints, normalizedSeries]);
+  }, [overlayRef, containerWidth, height, bounds, leftBounds, rightBounds, hoverIndex, maxPoints, normalizedSeries, xAxisFormatter]);
   const handlePointerMove = (e) => {
     if (maxPoints === 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -4989,6 +5093,8 @@ var VortexMultiLineChart = ({
     setHoverIndex(null);
     setCursorPos(null);
   };
+  const firstPt = normalizedSeries[0]?.points[hoverIndex ?? 0];
+  const activeLabel = hoverIndex !== null ? xAxisFormatter ? xAxisFormatter(hoverIndex) : firstPt?.label && !firstPt.label.startsWith("Point ") ? firstPt.label : `Point ${hoverIndex + 1}` : "";
   return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(
     "div",
     {
@@ -4997,7 +5103,16 @@ var VortexMultiLineChart = ({
       style: { height },
       children: [
         /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "absolute top-2.5 right-4 z-20 flex items-center gap-3 bg-black/60 px-3 py-1 rounded-full border border-white/10 backdrop-blur-md", children: normalizedSeries.map((s) => /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "flex items-center gap-1.5 text-xs", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "h-2 w-2 rounded-full", style: { backgroundColor: s.color } }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+            "span",
+            {
+              className: "h-2 w-2 rounded-full",
+              style: {
+                backgroundColor: s.color,
+                boxShadow: `0 0 6px ${s.color}`
+              }
+            }
+          ),
           /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-zinc-300 font-mono text-[11px]", children: s.name })
         ] }, s.name)) }),
         /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
@@ -5016,29 +5131,24 @@ var VortexMultiLineChart = ({
           {
             className: "pointer-events-none absolute z-30 flex flex-col gap-1.5 rounded-xl border border-cyan-500/30 bg-[#020616]/90 px-3.5 py-2.5 text-xs backdrop-blur-xl shadow-2xl font-mono text-zinc-300",
             style: {
-              left: Math.min(containerWidth - 190, Math.max(10, cursorPos.x + 16)),
-              top: Math.min(height - 110, Math.max(10, cursorPos.y - 45))
+              left: Math.min(containerWidth - 210, Math.max(10, cursorPos.x + 16)),
+              top: Math.min(height - 120, Math.max(10, cursorPos.y - 45))
             },
             children: [
               /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "flex items-center justify-between border-b border-white/10 pb-1", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { className: "text-zinc-400 font-semibold", children: [
-                  "Timeline #",
-                  hoverIndex + 1
-                ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-[10px] text-cyan-400 font-mono", children: "COMPARISON" })
+                /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-zinc-400 font-semibold", children: activeLabel }),
+                /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-[10px] text-cyan-400 font-mono", children: "FLOW" })
               ] }),
               /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "flex flex-col gap-1", children: normalizedSeries.map((s) => {
                 const pt = s.points[hoverIndex];
                 if (!pt) return null;
+                const formattedPrice = s.yAxis === "right" ? rightPriceFormatter ? rightPriceFormatter(pt.price) : `$${formatPrice(pt.price)}` : leftPriceFormatter ? leftPriceFormatter(pt.price) : `$${formatPrice(pt.price)}`;
                 return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "flex items-center justify-between gap-4", children: [
                   /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "flex items-center gap-1.5", children: [
                     /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "h-1.5 w-1.5 rounded-full", style: { backgroundColor: s.color } }),
-                    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-zinc-300 text-[11px]", children: s.name.split(" ")[0] })
+                    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-zinc-300 text-[11px]", children: s.name })
                   ] }),
-                  /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("strong", { className: "text-white", children: [
-                    "$",
-                    formatPrice(pt.price)
-                  ] })
+                  /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("strong", { className: "text-white", children: formattedPrice })
                 ] }, s.name);
               }) })
             ]
@@ -5286,8 +5396,23 @@ var VortexScatterPlot = ({
 var import_react19 = require("react");
 
 // src/engine/heatmap.ts
-function getRgba(ratio, scale) {
+function getRgba(ratio, scale, zeroRatio = 0.5) {
   const r = Math.max(0, Math.min(1, ratio));
+  if (scale === "diverging") {
+    if (r < zeroRatio) {
+      const t = zeroRatio > 0 ? (zeroRatio - r) / zeroRatio : 0;
+      const red = Math.round(20 * (1 - t) + 244 * t);
+      const green = Math.round(28 * (1 - t) + 63 * t);
+      const blue = Math.round(48 * (1 - t) + 94 * t);
+      return [red, green, blue, 0.35 + t * 0.55];
+    } else {
+      const t = zeroRatio < 1 ? (r - zeroRatio) / (1 - zeroRatio) : 0;
+      const red = Math.round(20 * (1 - t) + 16 * t);
+      const green = Math.round(28 * (1 - t) + 185 * t);
+      const blue = Math.round(48 * (1 - t) + 129 * t);
+      return [red, green, blue, 0.35 + t * 0.55];
+    }
+  }
   if (scale === "coolwarm") {
     const red = Math.round(244 * (1 - r) + 56 * r);
     const green = Math.round(63 * (1 - r) + 189 * r);
@@ -5320,7 +5445,9 @@ function drawHeatmap(ctx, data, bounds, options = {}) {
     showValues = true,
     cellPadding = 2.5,
     borderRadius = 4,
-    hoveredCell = null
+    hoveredCell = null,
+    yAxisPosition = "right",
+    formatValue
   } = options;
   const numRows = yLabels.length;
   const numCols = xLabels.length;
@@ -5336,6 +5463,7 @@ function drawHeatmap(ctx, data, bounds, options = {}) {
     }
   }
   const range = Math.max(max - min, 1e-4);
+  const zeroRatio = min < 0 && max > 0 ? (0 - min) / range : 0.5;
   const cellWidth = bounds.plotWidth / numCols;
   const cellHeight = bounds.plotHeight / numRows;
   ctx.save();
@@ -5346,7 +5474,7 @@ function drawHeatmap(ctx, data, bounds, options = {}) {
     for (let c = 0; c < numCols; c++) {
       const val = values[r]?.[c] ?? 0;
       const norm = (val - min) / range;
-      const [cr, cg, cb, ca] = getRgba(norm, colorScale);
+      const [cr, cg, cb, ca] = getRgba(norm, colorScale, zeroRatio);
       const x = bounds.padding.left + c * cellWidth + cellPadding;
       const y = bounds.padding.top + r * cellHeight + cellPadding;
       const w = Math.max(1, cellWidth - cellPadding * 2);
@@ -5375,22 +5503,38 @@ function drawHeatmap(ctx, data, bounds, options = {}) {
       if (showValues && w >= 22 && h >= 14) {
         const luminance = (0.299 * cr + 0.587 * cg + 0.114 * cb) * ca;
         ctx.fillStyle = luminance > 125 ? "#020616" : "#ffffff";
-        ctx.fillText(val.toFixed(2), x + w / 2, y + h / 2);
+        const text = formatValue ? formatValue(val) : val.toFixed(1);
+        ctx.fillText(text, x + w / 2, y + h / 2);
       }
     }
   }
   ctx.fillStyle = "#94a3b8";
   ctx.font = "10px Inter, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
   for (let c = 0; c < numCols; c++) {
     const x = bounds.padding.left + c * cellWidth + cellWidth / 2;
-    const y = bounds.chartHeight - bounds.padding.bottom + 14;
+    const y = bounds.chartHeight - bounds.padding.bottom + 10;
     ctx.fillText(xLabels[c] ?? "", x, y);
   }
-  ctx.textAlign = "left";
-  for (let r = 0; r < numRows; r++) {
-    const x = bounds.chartWidth - bounds.padding.right + 6;
-    const y = bounds.padding.top + r * cellHeight + cellHeight / 2;
-    ctx.fillText(yLabels[r] ?? "", x, y);
+  if (yAxisPosition === "left") {
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 11px Inter, monospace";
+    ctx.fillStyle = "#ffffff";
+    for (let r = 0; r < numRows; r++) {
+      const x = bounds.padding.left - 8;
+      const y = bounds.padding.top + r * cellHeight + cellHeight / 2;
+      ctx.fillText(yLabels[r] ?? "", x, y);
+    }
+  } else {
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    for (let r = 0; r < numRows; r++) {
+      const x = bounds.chartWidth - bounds.padding.right + 6;
+      const y = bounds.padding.top + r * cellHeight + cellHeight / 2;
+      ctx.fillText(yLabels[r] ?? "", x, y);
+    }
   }
   ctx.restore();
 }
@@ -5405,13 +5549,16 @@ var VortexHeatmap = ({
   showValues = true,
   cellPadding = 2.5,
   showWatermark = true,
-  theme = {}
+  theme = {},
+  yAxisPosition = "right",
+  formatValue
 }) => {
   const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
   const [hoveredCell, setHoveredCell] = (0, import_react19.useState)(null);
   const bounds = (0, import_react19.useMemo)(() => {
-    return computeBounds([0, 100], containerWidth, height);
-  }, [containerWidth, height]);
+    const padding = yAxisPosition === "left" ? { top: 16, bottom: 28, left: 56, right: 16 } : { top: 16, bottom: 28, left: 16, right: 56 };
+    return computeBounds([0, 100], containerWidth, height, padding);
+  }, [containerWidth, height, yAxisPosition]);
   (0, import_react19.useEffect)(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -5423,12 +5570,14 @@ var VortexHeatmap = ({
       colorScale,
       showValues,
       cellPadding,
+      yAxisPosition,
+      formatValue,
       hoveredCell: hoveredCell ? { row: hoveredCell.row, col: hoveredCell.col } : null
     });
     if (showWatermark) {
       drawVortexWatermark(ctx, bounds);
     }
-  }, [containerWidth, height, bounds, data, colorScale, showValues, cellPadding, hoveredCell, showWatermark, theme, canvasRef]);
+  }, [containerWidth, height, bounds, data, colorScale, showValues, cellPadding, yAxisPosition, formatValue, hoveredCell, showWatermark, theme, canvasRef]);
   const numCols = data.xLabels.length;
   const numRows = data.yLabels.length;
   const handlePointerMove = (e) => {
@@ -5453,6 +5602,7 @@ var VortexHeatmap = ({
       setHoveredCell(null);
     }
   };
+  const formattedVal = hoveredCell ? formatValue ? formatValue(hoveredCell.val) : hoveredCell.val.toFixed(2) : "";
   return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(
     "div",
     {
@@ -5471,15 +5621,12 @@ var VortexHeatmap = ({
           }
         ),
         /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
-        hoveredCell && /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: "pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-2 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: "text-zinc-400 font-semibold", children: data.yLabels[hoveredCell.row] || `Row ${hoveredCell.row + 1}` }),
-          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: "text-zinc-500", children: "x" }),
-          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: "text-white font-semibold", children: data.xLabels[hoveredCell.col] || `Col ${hoveredCell.col + 1}` }),
-          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: "text-zinc-500", children: "|" }),
-          /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("span", { children: [
-            "Correlation: ",
-            /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("strong", { className: "text-sky-400", children: hoveredCell.val.toFixed(2) })
-          ] })
+        hoveredCell && /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: "pointer-events-none absolute top-2.5 right-3 z-20 flex items-center gap-2 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: "text-white font-bold", children: data.yLabels[hoveredCell.row] || `Row ${hoveredCell.row + 1}` }),
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: "text-zinc-500", children: "\u2022" }),
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: "text-zinc-300 font-semibold", children: data.xLabels[hoveredCell.col] || `Col ${hoveredCell.col + 1}` }),
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: "text-zinc-500", children: ":" }),
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("strong", { className: hoveredCell.val >= 0 ? "text-emerald-400" : "text-rose-400", children: formattedVal })
         ] })
       ]
     }
@@ -7241,6 +7388,454 @@ var VortexWhaleBiasChart = ({
     label && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("div", { className: "text-[11px] text-zinc-400 font-medium px-1", children: label })
   ] });
 };
+
+// src/components/VortexMultiAreaChart.tsx
+var import_react27 = require("react");
+
+// src/engine/multi-area.ts
+function traceSmoothSpline3(ctx, points) {
+  if (points.length < 2) return;
+  if (points.length === 2) {
+    ctx.moveTo(points[0].x, points[0].y);
+    ctx.lineTo(points[1].x, points[1].y);
+    return;
+  }
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+  }
+}
+function drawMultiAreaChart(ctx, seriesList, bounds, options = {}) {
+  if (!seriesList || seriesList.length === 0) return;
+  const { smooth = true, glow = true } = options;
+  const bottomY = bounds.chartHeight - bounds.padding.bottom;
+  seriesList.forEach((s) => {
+    const data = s.data;
+    if (!data || data.length < 2) return;
+    const count = data.length;
+    const points = [];
+    for (let i = 0; i < count; i++) {
+      const item = data[i];
+      const yVal = typeof item === "number" ? item : item.y;
+      const x = typeof item === "object" && typeof item.x === "number" ? item.x : indexToX(i, count, bounds);
+      const y = priceToY(yVal, bounds);
+      points.push({ x, y });
+    }
+    const topOpacity = s.gradientTopOpacity ?? 0.35;
+    const bottomOpacity = s.gradientBottomOpacity ?? 0.02;
+    const lineWidth = s.lineWidth ?? 2;
+    ctx.save();
+    if (typeof ctx.createLinearGradient === "function") {
+      const gradient = ctx.createLinearGradient(0, bounds.padding.top, 0, bottomY);
+      gradient.addColorStop(0, colorWithAlpha(s.color, topOpacity));
+      gradient.addColorStop(0.6, colorWithAlpha(s.color, topOpacity * 0.4));
+      gradient.addColorStop(1, colorWithAlpha(s.color, bottomOpacity));
+      ctx.fillStyle = gradient;
+    } else {
+      ctx.fillStyle = colorWithAlpha(s.color, topOpacity * 0.5);
+    }
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, bottomY);
+    ctx.lineTo(points[0].x, points[0].y);
+    if (smooth) {
+      traceSmoothSpline3(ctx, points);
+    } else {
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+    }
+    ctx.lineTo(points[points.length - 1].x, bottomY);
+    ctx.closePath();
+    ctx.fill();
+    if (glow) {
+      ctx.shadowColor = s.color;
+      ctx.shadowBlur = 8;
+    }
+    ctx.beginPath();
+    if (smooth) {
+      traceSmoothSpline3(ctx, points);
+    } else {
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+    }
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = lineWidth;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    const last = points[points.length - 1];
+    ctx.beginPath();
+    ctx.arc(last.x, last.y, 6, 0, Math.PI * 2);
+    ctx.fillStyle = colorWithAlpha(s.color, 0.25);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(last.x, last.y, 3, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+  });
+}
+
+// src/components/VortexMultiAreaChart.tsx
+var import_jsx_runtime25 = require("react/jsx-runtime");
+var VortexMultiAreaChart = ({
+  series,
+  height = 320,
+  className = "",
+  showWatermark = true,
+  theme = {},
+  formatValue,
+  xAxisFormatter
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
+  const [hoverIndex, setHoverIndex] = (0, import_react27.useState)(null);
+  const [cursorPos, setCursorPos] = (0, import_react27.useState)(null);
+  const bounds = (0, import_react27.useMemo)(() => {
+    const allValues = [];
+    series.forEach((s) => {
+      s.data.forEach((d) => {
+        allValues.push(typeof d === "number" ? d : d.y);
+      });
+    });
+    return computeBounds(
+      allValues.length > 0 ? allValues : [0, 100],
+      containerWidth,
+      height,
+      void 0,
+      { allowZeroOrNegative: true }
+    );
+  }, [series, containerWidth, height]);
+  (0, import_react27.useEffect)(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawGridAndAxes(ctx, bounds);
+    drawMultiAreaChart(ctx, series, bounds, {
+      smooth: true,
+      glow: true
+    });
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds);
+    }
+  }, [containerWidth, height, bounds, series, showWatermark, theme, canvasRef]);
+  const maxPoints = Math.max(0, ...series.map((s) => s.data.length));
+  (0, import_react27.useEffect)(() => {
+    const overlay = overlayRef.current;
+    if (!overlay) return;
+    const setup = setupCanvasDpi(overlay, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    if (hoverIndex !== null && maxPoints > 0) {
+      const snapX = indexToX(hoverIndex, maxPoints, bounds);
+      const bottomAxisY = bounds.chartHeight - bounds.padding.bottom;
+      ctx.save();
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(Math.round(snapX) + 0.5, bounds.padding.top);
+      ctx.lineTo(Math.round(snapX) + 0.5, bottomAxisY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      series.forEach((s) => {
+        const item = s.data[hoverIndex];
+        if (item === void 0) return;
+        const val = typeof item === "number" ? item : item.y;
+        const snapY = priceToY(val, bounds);
+        ctx.beginPath();
+        ctx.arc(snapX, snapY, 6, 0, Math.PI * 2);
+        ctx.fillStyle = s.color;
+        ctx.globalAlpha = 0.25;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.beginPath();
+        ctx.arc(snapX, snapY, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      });
+      ctx.fillStyle = "#1e293b";
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+      ctx.lineWidth = 1;
+      const firstItem2 = series[0]?.data[hoverIndex];
+      const labelText = xAxisFormatter ? xAxisFormatter(hoverIndex) : typeof firstItem2 === "object" && firstItem2?.label ? firstItem2.label : `Timeline #${hoverIndex + 1}`;
+      const badgeW = Math.max(64, labelText.length * 7.5);
+      const badgeH = 16;
+      const badgeX = Math.round(snapX - badgeW / 2);
+      const badgeY = bottomAxisY + 4;
+      ctx.beginPath();
+      if (typeof ctx.roundRect === "function") {
+        ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 3);
+      } else {
+        ctx.rect(badgeX, badgeY, badgeW, badgeH);
+      }
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#f1f5f9";
+      ctx.font = "10px Inter, monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(labelText, badgeX + badgeW / 2, badgeY + badgeH / 2);
+      ctx.restore();
+    }
+  }, [overlayRef, containerWidth, height, bounds, hoverIndex, maxPoints, series, xAxisFormatter]);
+  const handlePointerMove = (e) => {
+    if (maxPoints === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    setCursorPos({ x: mouseX, y: mouseY });
+    const step = bounds.plotWidth / Math.max(1, maxPoints);
+    const idx = Math.max(0, Math.min(maxPoints - 1, Math.floor((mouseX - bounds.padding.left) / step)));
+    setHoverIndex(idx);
+  };
+  const handlePointerLeave = () => {
+    setHoverIndex(null);
+    setCursorPos(null);
+  };
+  const firstItem = series[0]?.data[hoverIndex ?? 0];
+  const activeLabel = hoverIndex !== null ? xAxisFormatter ? xAxisFormatter(hoverIndex) : typeof firstItem === "object" && firstItem?.label ? firstItem.label : `Point ${hoverIndex + 1}` : "";
+  return /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none group ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("div", { className: "absolute top-2.5 right-4 z-20 flex items-center gap-3 bg-black/60 px-3 py-1 rounded-full border border-white/10 backdrop-blur-md", children: series.map((s) => /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)("div", { className: "flex items-center gap-1.5 text-xs", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
+            "span",
+            {
+              className: "h-2 w-2 rounded-full",
+              style: {
+                backgroundColor: s.color,
+                boxShadow: `0 0 6px ${s.color}`
+              }
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("span", { className: "text-zinc-300 font-mono text-[11px]", children: s.name })
+        ] }, s.name)) }),
+        /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
+          "canvas",
+          {
+            ref: canvasRef,
+            onPointerMove: handlePointerMove,
+            onPointerLeave: handlePointerLeave,
+            className: "block h-full w-full cursor-crosshair",
+            style: { touchAction: "none" }
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
+        hoverIndex !== null && cursorPos && /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(
+          "div",
+          {
+            className: "pointer-events-none absolute z-30 flex flex-col gap-1.5 rounded-xl border border-cyan-500/30 bg-[#020616]/90 px-3.5 py-2.5 text-xs backdrop-blur-xl shadow-2xl font-mono text-zinc-300",
+            style: {
+              left: Math.min(containerWidth - 210, Math.max(10, cursorPos.x + 16)),
+              top: Math.min(height - 120, Math.max(10, cursorPos.y - 45))
+            },
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)("div", { className: "flex items-center justify-between border-b border-white/10 pb-1", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("span", { className: "text-zinc-400 font-semibold", children: activeLabel }),
+                /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("span", { className: "text-[10px] text-cyan-400 font-mono", children: "0DTE FLOW" })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("div", { className: "flex flex-col gap-1", children: series.map((s) => {
+                const item = s.data[hoverIndex];
+                if (item === void 0) return null;
+                const val = typeof item === "number" ? item : item.y;
+                const formattedVal = formatValue ? formatValue(val) : `$${formatPrice(val)}`;
+                return /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)("div", { className: "flex items-center justify-between gap-4", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)("div", { className: "flex items-center gap-1.5", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("span", { className: "h-1.5 w-1.5 rounded-full", style: { backgroundColor: s.color } }),
+                    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("span", { className: "text-zinc-300 text-[11px]", children: s.name })
+                  ] }),
+                  /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("strong", { className: "text-white", children: formattedVal })
+                ] }, s.name);
+              }) })
+            ]
+          }
+        )
+      ]
+    }
+  );
+};
+
+// src/components/VortexGauge.tsx
+var import_react28 = require("react");
+
+// src/engine/gauge.ts
+function drawRadialGauge(ctx, width, height, value, options = {}) {
+  const {
+    min = 0,
+    max = 100,
+    label = "BULLISH",
+    sublabel = "",
+    showTicks = true,
+    glow = true
+  } = options;
+  const clampedVal = Math.max(min, Math.min(max, value));
+  const range = max - min || 1;
+  const ratio = (clampedVal - min) / range;
+  const startAngle = 3 * Math.PI / 4;
+  const endAngle = 9 * Math.PI / 4;
+  const sweepAngle = endAngle - startAngle;
+  const currentAngle = startAngle + sweepAngle * ratio;
+  const cx = width / 2;
+  const cy = height / 2 + 10;
+  const radius = Math.min(width, height) / 2 - 28;
+  const arcWidth = 14;
+  if (radius < 10) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius + arcWidth / 2 + 4, startAngle, endAngle);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, startAngle, endAngle);
+  ctx.strokeStyle = "#1e293b";
+  ctx.lineWidth = arcWidth;
+  ctx.lineCap = "round";
+  ctx.stroke();
+  let activeColor = "#10b981";
+  if (ratio < 0.35) {
+    activeColor = "#ef4444";
+  } else if (ratio < 0.6) {
+    activeColor = "#f59e0b";
+  } else if (ratio < 0.8) {
+    activeColor = "#10b981";
+  } else {
+    activeColor = "#00f0ff";
+  }
+  if (ratio > 0.01) {
+    ctx.save();
+    if (glow) {
+      ctx.shadowColor = activeColor;
+      ctx.shadowBlur = 14;
+    }
+    const grad = ctx.createLinearGradient(
+      cx - radius,
+      cy + radius,
+      cx + radius,
+      cy - radius
+    );
+    grad.addColorStop(0, "#ef4444");
+    grad.addColorStop(0.45, "#f59e0b");
+    grad.addColorStop(0.75, "#10b981");
+    grad.addColorStop(1, "#00f0ff");
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, startAngle, currentAngle);
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = arcWidth;
+    ctx.lineCap = "round";
+    ctx.stroke();
+    ctx.restore();
+  }
+  const pointerX = cx + radius * Math.cos(currentAngle);
+  const pointerY = cy + radius * Math.sin(currentAngle);
+  ctx.beginPath();
+  ctx.arc(pointerX, pointerY, arcWidth / 2 + 3, 0, Math.PI * 2);
+  ctx.fillStyle = activeColor;
+  ctx.globalAlpha = 0.3;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.beginPath();
+  ctx.arc(pointerX, pointerY, arcWidth / 2 - 1, 0, Math.PI * 2);
+  ctx.fillStyle = "#ffffff";
+  ctx.fill();
+  ctx.strokeStyle = activeColor;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  if (showTicks) {
+    ctx.font = "bold 9px Inter, monospace";
+    ctx.fillStyle = "#64748b";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const minX = cx + (radius + 20) * Math.cos(startAngle);
+    const minY = cy + (radius + 20) * Math.sin(startAngle);
+    ctx.fillText(`${min}`, minX, minY);
+    const maxX = cx + (radius + 20) * Math.cos(endAngle);
+    const maxY = cy + (radius + 20) * Math.sin(endAngle);
+    ctx.fillText(`${max}`, maxX, maxY);
+  }
+  ctx.font = `900 ${Math.max(22, Math.round(radius * 0.48))}px Inter, sans-serif`;
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(`${Math.round(clampedVal)}`, cx, cy - 8);
+  if (label) {
+    ctx.font = "bold 10px Inter, monospace";
+    ctx.fillStyle = activeColor;
+    ctx.fillText(label.toUpperCase(), cx, cy + Math.round(radius * 0.28));
+  }
+  if (sublabel) {
+    ctx.font = "9px Inter, sans-serif";
+    ctx.fillStyle = "#64748b";
+    ctx.fillText(sublabel, cx, cy + Math.round(radius * 0.46));
+  }
+  ctx.restore();
+}
+
+// src/components/VortexGauge.tsx
+var import_jsx_runtime26 = require("react/jsx-runtime");
+var VortexGauge = ({
+  value,
+  min = 0,
+  max = 100,
+  label = "BULLISH",
+  sublabel = "",
+  height = 180,
+  className = "",
+  showTicks = true,
+  theme = {}
+}) => {
+  const { containerRef, canvasRef, containerWidth } = useChartSurface();
+  (0, import_react28.useEffect)(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    drawRadialGauge(ctx, containerWidth, height, value, {
+      min,
+      max,
+      label,
+      sublabel,
+      showTicks,
+      glow: true
+    });
+  }, [containerWidth, height, value, min, max, label, sublabel, showTicks, theme, canvasRef]);
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full flex items-center justify-center overflow-hidden select-none ${className}`,
+      style: { height },
+      children: /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("canvas", { ref: canvasRef, className: "block w-full h-full" })
+    }
+  );
+};
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   VORTEX_THEME,
@@ -7252,9 +7847,11 @@ var VortexWhaleBiasChart = ({
   VortexChoroplethMap,
   VortexConeChart,
   VortexFootprintChart,
+  VortexGauge,
   VortexHeatmap,
   VortexHeikinAshiChart,
   VortexLineChart,
+  VortexMultiAreaChart,
   VortexMultiLineChart,
   VortexOhlcChart,
   VortexPieChart,
@@ -7292,10 +7889,12 @@ var VortexWhaleBiasChart = ({
   drawGenericCrosshair,
   drawHeatmap,
   drawLineChart,
+  drawMultiAreaChart,
   drawOhlcBars,
   drawPieChart,
   drawPointAndFigure,
   drawRadarChart,
+  drawRadialGauge,
   drawRenkoBricks,
   drawRulerOverlay,
   drawScatterPlot,

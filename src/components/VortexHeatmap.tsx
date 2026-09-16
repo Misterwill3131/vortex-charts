@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
 import { type VortexThemeOverride } from "../theme/tokens";
-import { computeBounds, type ChartBounds } from "../engine/coordinates";
+import { computeBounds, type ChartBounds, type ViewportPadding } from "../engine/coordinates";
 import { drawVortexWatermark } from "../engine/watermark";
 import { setupCanvasDpi } from "../engine/canvas";
 import { useChartSurface } from "../hooks/useChartSurface";
@@ -10,11 +10,13 @@ export interface VortexHeatmapProps {
   data: HeatmapData;
   height?: number;
   className?: string;
-  colorScale?: "vortex" | "coolwarm" | "emerald";
+  colorScale?: "vortex" | "coolwarm" | "emerald" | "diverging";
   showValues?: boolean;
   cellPadding?: number;
   showWatermark?: boolean;
   theme?: VortexThemeOverride;
+  yAxisPosition?: "left" | "right";
+  formatValue?: (val: number) => string;
 }
 
 export const VortexHeatmap: React.FC<VortexHeatmapProps> = ({
@@ -26,13 +28,20 @@ export const VortexHeatmap: React.FC<VortexHeatmapProps> = ({
   cellPadding = 2.5,
   showWatermark = true,
   theme = {},
+  yAxisPosition = "right",
+  formatValue,
 }) => {
   const { containerRef, canvasRef, overlayRef, containerWidth } = useChartSurface();
   const [hoveredCell, setHoveredCell] = useState<{ row: number; col: number; val: number } | null>(null);
 
   const bounds: ChartBounds = useMemo(() => {
-    return computeBounds([0, 100], containerWidth, height);
-  }, [containerWidth, height]);
+    const padding: ViewportPadding =
+      yAxisPosition === "left"
+        ? { top: 16, bottom: 28, left: 56, right: 16 }
+        : { top: 16, bottom: 28, left: 16, right: 56 };
+
+    return computeBounds([0, 100], containerWidth, height, padding);
+  }, [containerWidth, height, yAxisPosition]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -48,13 +57,15 @@ export const VortexHeatmap: React.FC<VortexHeatmapProps> = ({
       colorScale,
       showValues,
       cellPadding,
+      yAxisPosition,
+      formatValue,
       hoveredCell: hoveredCell ? { row: hoveredCell.row, col: hoveredCell.col } : null,
     });
 
     if (showWatermark) {
       drawVortexWatermark(ctx, bounds);
     }
-  }, [containerWidth, height, bounds, data, colorScale, showValues, cellPadding, hoveredCell, showWatermark, theme, canvasRef]);
+  }, [containerWidth, height, bounds, data, colorScale, showValues, cellPadding, yAxisPosition, formatValue, hoveredCell, showWatermark, theme, canvasRef]);
 
   const numCols = data.xLabels.length;
   const numRows = data.yLabels.length;
@@ -86,6 +97,10 @@ export const VortexHeatmap: React.FC<VortexHeatmapProps> = ({
     }
   };
 
+  const formattedVal = hoveredCell
+    ? (formatValue ? formatValue(hoveredCell.val) : hoveredCell.val.toFixed(2))
+    : "";
+
   return (
     <div
       ref={containerRef}
@@ -102,12 +117,14 @@ export const VortexHeatmap: React.FC<VortexHeatmapProps> = ({
       <canvas ref={overlayRef} className="pointer-events-none absolute inset-0 block" />
 
       {hoveredCell && (
-        <div className="pointer-events-none absolute top-2.5 left-3 z-20 flex items-center gap-2 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300">
-          <span className="text-zinc-400 font-semibold">{data.yLabels[hoveredCell.row] || `Row ${hoveredCell.row + 1}`}</span>
-          <span className="text-zinc-500">x</span>
-          <span className="text-white font-semibold">{data.xLabels[hoveredCell.col] || `Col ${hoveredCell.col + 1}`}</span>
-          <span className="text-zinc-500">|</span>
-          <span>Correlation: <strong className="text-sky-400">{hoveredCell.val.toFixed(2)}</strong></span>
+        <div className="pointer-events-none absolute top-2.5 right-3 z-20 flex items-center gap-2 rounded-lg border border-white/10 bg-black/85 px-3 py-1.5 text-[11px] backdrop-blur-md shadow-xl font-mono text-zinc-300">
+          <span className="text-white font-bold">{data.yLabels[hoveredCell.row] || `Row ${hoveredCell.row + 1}`}</span>
+          <span className="text-zinc-500">•</span>
+          <span className="text-zinc-300 font-semibold">{data.xLabels[hoveredCell.col] || `Col ${hoveredCell.col + 1}`}</span>
+          <span className="text-zinc-500">:</span>
+          <strong className={hoveredCell.val >= 0 ? "text-emerald-400" : "text-rose-400"}>
+            {formattedVal}
+          </strong>
         </div>
       )}
     </div>

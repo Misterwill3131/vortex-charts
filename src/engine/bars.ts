@@ -253,7 +253,7 @@ export function drawBarChart(
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(x + 0.5, padding.top);
-    ctx.lineTo(x + 0.5, yZero);
+    ctx.lineTo(x + 0.5, bottomAxisY);
     ctx.stroke();
     ctx.setLineDash([]);
 
@@ -263,7 +263,11 @@ export function drawBarChart(
     const pillX = Math.max(padding.left + 2, Math.min(rightAxisX - pillW - 2, x - pillW / 2));
     ctx.fillStyle = ref.color;
     ctx.beginPath();
-    ctx.roundRect(pillX, padding.top - 14, pillW, 12, 3);
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(pillX, padding.top - 14, pillW, 12, 3);
+    } else {
+      ctx.rect(pillX, padding.top - 14, pillW, 12);
+    }
     ctx.fill();
     ctx.fillStyle = "#020616";
     ctx.font = "bold 9px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";

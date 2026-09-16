@@ -21,6 +21,8 @@ export { VortexRadarChart, type VortexRadarChartProps } from "./components/Vorte
 export { VortexPieChart, type VortexPieChartProps } from "./components/VortexPieChart";
 export { VortexChoroplethMap, type VortexChoroplethMapProps } from "./components/VortexChoroplethMap";
 export { VortexWhaleBiasChart, type VortexWhaleBiasChartProps } from "./components/VortexWhaleBiasChart";
+export { VortexMultiAreaChart, type VortexMultiAreaChartProps } from "./components/VortexMultiAreaChart";
+export { VortexGauge, type VortexGaugeProps } from "./components/VortexGauge";
 export { VortexChartControls, type VortexChartControlsProps } from "./components/VortexChartControls";
 
 // Engine & Interactive Tools
@@ -75,6 +77,8 @@ export { computeRangeBars, type TickData } from "./engine/range-bars";
 export { computeScatterBounds, drawScatterPlot, type ScatterPoint, type ScatterBounds, type DrawScatterOptions } from "./engine/scatter";
 export { drawHeatmap, type HeatmapData, type DrawHeatmapOptions } from "./engine/heatmap";
 export { drawAreaChart, type AreaDataPoint, type DrawAreaOptions } from "./engine/area";
+export { drawMultiAreaChart, type MultiAreaSeries, type DrawMultiAreaOptions } from "./engine/multi-area";
+export { drawRadialGauge, type GaugeOptions } from "./engine/gauge";
 export { computeBoxPlotStats, drawBoxPlot, type BoxPlotItem, type DrawBoxPlotOptions } from "./engine/box-plot";
 export { drawWaterfallChart, type WaterfallBar, type DrawWaterfallOptions } from "./engine/waterfall";
 export { drawRadarChart, type RadarDimension, type RadarSeries, type DrawRadarOptions } from "./engine/radar";
