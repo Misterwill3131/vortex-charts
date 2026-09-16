@@ -19,6 +19,22 @@ export function useChartSurface() {
     const el = containerRef.current;
     if (!el) return;
 
+    // Prevent text selection across the chart container, canvases and badges
+    el.style.userSelect = "none";
+    (el.style as any).webkitUserSelect = "none";
+    (el.style as any).mozUserSelect = "none";
+    (el.style as any).msUserSelect = "none";
+    el.setAttribute("data-vortex-chart", "true");
+
+    if (canvasRef.current) {
+      canvasRef.current.style.userSelect = "none";
+      (canvasRef.current.style as any).webkitUserSelect = "none";
+    }
+    if (overlayRef.current) {
+      overlayRef.current.style.userSelect = "none";
+      (overlayRef.current.style as any).webkitUserSelect = "none";
+    }
+
     setContainerWidth(el.clientWidth || 600);
 
     let raf = 0;

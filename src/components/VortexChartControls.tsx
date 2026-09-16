@@ -23,7 +23,8 @@ export const VortexChartControls: React.FC<VortexChartControlsProps> = ({
 }) => {
   return (
     <div
-      className={`absolute top-2.5 right-3 z-20 flex items-center gap-1 rounded-lg border border-white/10 bg-black/75 px-1.5 py-1 backdrop-blur-md shadow-xl transition-all duration-200 opacity-60 hover:opacity-100 ${className}`}
+      className={`absolute top-2.5 right-3 z-20 flex items-center gap-1 rounded-lg border border-white/10 bg-black/75 px-1.5 py-1 backdrop-blur-md shadow-xl transition-all duration-200 opacity-60 hover:opacity-100 select-none ${className}`}
+      style={{ userSelect: "none", WebkitUserSelect: "none" }}
       role="toolbar"
       aria-label="Contrôles du graphique"
     >

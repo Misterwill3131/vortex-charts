@@ -779,7 +779,8 @@ var VortexChartControls = ({
   return /* @__PURE__ */ jsxs2(
     "div",
     {
-      className: `absolute top-2.5 right-3 z-20 flex items-center gap-1 rounded-lg border border-white/10 bg-black/75 px-1.5 py-1 backdrop-blur-md shadow-xl transition-all duration-200 opacity-60 hover:opacity-100 ${className}`,
+      className: `absolute top-2.5 right-3 z-20 flex items-center gap-1 rounded-lg border border-white/10 bg-black/75 px-1.5 py-1 backdrop-blur-md shadow-xl transition-all duration-200 opacity-60 hover:opacity-100 select-none ${className}`,
+      style: { userSelect: "none", WebkitUserSelect: "none" },
       role: "toolbar",
       "aria-label": "Contr\xF4les du graphique",
       children: [
@@ -942,6 +943,19 @@ function useChartSurface() {
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    el.style.userSelect = "none";
+    el.style.webkitUserSelect = "none";
+    el.style.mozUserSelect = "none";
+    el.style.msUserSelect = "none";
+    el.setAttribute("data-vortex-chart", "true");
+    if (canvasRef.current) {
+      canvasRef.current.style.userSelect = "none";
+      canvasRef.current.style.webkitUserSelect = "none";
+    }
+    if (overlayRef.current) {
+      overlayRef.current.style.userSelect = "none";
+      overlayRef.current.style.webkitUserSelect = "none";
+    }
     setContainerWidth(el.clientWidth || 600);
     let raf = 0;
     let pendingWidth = 0;
