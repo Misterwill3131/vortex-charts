@@ -258,19 +258,25 @@ export const VortexWhaleBiasChart: React.FC<VortexWhaleBiasChartProps> = ({
             </div>
             <div className="mt-1.5 space-y-1 tabular-nums">
               <div className="flex items-center justify-between gap-4 text-[11px]">
-                <span className="font-semibold text-emerald-400">{activePoint.callPct}% Calls</span>
-                <span className="font-semibold text-rose-400">{100 - activePoint.callPct}% Puts</span>
+                <span className="font-semibold text-emerald-400">
+                  {Math.round(activePoint.callPct * 10) / 10}% Calls
+                </span>
+                <span className="font-semibold text-rose-400">
+                  {Math.round((100 - activePoint.callPct) * 10) / 10}% Puts
+                </span>
               </div>
               <div className="h-1.5 w-32 overflow-hidden rounded-full bg-rose-500/30">
                 <div
                   className="h-full rounded-full bg-emerald-400 transition-all duration-75"
-                  style={{ width: `${activePoint.callPct}%` }}
+                  style={{ width: `${Math.max(0, Math.min(100, activePoint.callPct))}%` }}
                 />
               </div>
               {activeBaseline && (
                 <div className="flex items-center justify-between text-[10px] text-zinc-400 border-t border-white/10 pt-1 mt-1">
                   <span>1D Cumul:</span>
-                  <span className="text-zinc-300 font-semibold">{activeBaseline.callPct}%</span>
+                  <span className="text-zinc-300 font-semibold">
+                    {Math.round(activeBaseline.callPct * 10) / 10}%
+                  </span>
                 </div>
               )}
             </div>

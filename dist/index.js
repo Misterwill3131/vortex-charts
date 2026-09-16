@@ -7081,11 +7081,11 @@ var VortexWhaleBiasChart = ({
                 /* @__PURE__ */ jsxs24("div", { className: "mt-1.5 space-y-1 tabular-nums", children: [
                   /* @__PURE__ */ jsxs24("div", { className: "flex items-center justify-between gap-4 text-[11px]", children: [
                     /* @__PURE__ */ jsxs24("span", { className: "font-semibold text-emerald-400", children: [
-                      activePoint.callPct,
+                      Math.round(activePoint.callPct * 10) / 10,
                       "% Calls"
                     ] }),
                     /* @__PURE__ */ jsxs24("span", { className: "font-semibold text-rose-400", children: [
-                      100 - activePoint.callPct,
+                      Math.round((100 - activePoint.callPct) * 10) / 10,
                       "% Puts"
                     ] })
                   ] }),
@@ -7093,13 +7093,13 @@ var VortexWhaleBiasChart = ({
                     "div",
                     {
                       className: "h-full rounded-full bg-emerald-400 transition-all duration-75",
-                      style: { width: `${activePoint.callPct}%` }
+                      style: { width: `${Math.max(0, Math.min(100, activePoint.callPct))}%` }
                     }
                   ) }),
                   activeBaseline && /* @__PURE__ */ jsxs24("div", { className: "flex items-center justify-between text-[10px] text-zinc-400 border-t border-white/10 pt-1 mt-1", children: [
                     /* @__PURE__ */ jsx24("span", { children: "1D Cumul:" }),
                     /* @__PURE__ */ jsxs24("span", { className: "text-zinc-300 font-semibold", children: [
-                      activeBaseline.callPct,
+                      Math.round(activeBaseline.callPct * 10) / 10,
                       "%"
                     ] })
                   ] })
