@@ -139,12 +139,6 @@ export function xToIndex(x: number, totalCount: number, bounds: ChartBounds): nu
   return Math.max(0, Math.min(totalCount - 1, raw));
 }
 
-export interface ViewportLike {
-  startIndex: number;
-  endIndex: number;
-  totalCount: number;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Time-based X mapping (gap-aware: weekends / market pauses render as
 // proportional empty space instead of false equidistant slots)
@@ -189,6 +183,12 @@ export function nearestTimeIndex(items: { t: number }[], target: number): number
     return lo - 1;
   }
   return lo;
+}
+
+interface ViewportLike {
+  startIndex: number;
+  endIndex: number;
+  totalCount: number;
 }
 
 /**

@@ -7,7 +7,7 @@ export interface CandleStyle {
   downColor: string;
 }
 
-export const DEFAULT_CANDLE_STYLE: CandleStyle = {
+const DEFAULT_CANDLE_STYLE: CandleStyle = {
   upColor: "#10b981", // Bullish Emerald
   downColor: "#f43f5e", // Bearish Rose
 };

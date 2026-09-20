@@ -112,11 +112,6 @@ interface VerticalScaleOptions {
     offset?: number;
     allowZeroOrNegative?: boolean;
 }
-interface ViewportLike {
-    startIndex: number;
-    endIndex: number;
-    totalCount: number;
-}
 interface TimeScaleMapping {
     /** Timestamp of the first visible candle */
     tMin: number;
@@ -132,6 +127,11 @@ declare function xToTime(x: number, scale: TimeScaleMapping, bounds: ChartBounds
 declare function nearestTimeIndex(items: {
     t: number;
 }[], target: number): number;
+interface ViewportLike {
+    startIndex: number;
+    endIndex: number;
+    totalCount: number;
+}
 /**
  * Maps a global data index to an X coordinate using the active viewport window.
  */

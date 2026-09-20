@@ -94,9 +94,19 @@ export const VortexCandleChart: React.FC<VortexCandleChartProps> = ({
   timeZone,
   theme = {},
 }) => {
-  // Deduplicate and sort candles chronologically
+  // Deduplicate and sort candles chronologically (avoids Map allocation on each render)
   const sortedCandles = useMemo(() => {
-    return Array.from(new Map(candles.map((c) => [c.t, c])).values()).sort((a, b) => a.t - b.t);
+    if (candles.length === 0) return [];
+    const seen = new Set<number>();
+    const unique: typeof candles = [];
+    for (const c of candles) {
+      if (!seen.has(c.t)) {
+        seen.add(c.t);
+        unique.push(c);
+      }
+    }
+    unique.sort((a, b) => a.t - b.t);
+    return unique;
   }, [candles]);
 
   // â”€â”€ Surface: container refs, width tracking, devicePixelRatio â”€â”€

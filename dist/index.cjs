@@ -1662,7 +1662,17 @@ var VortexCandleChart = ({
   theme = {}
 }) => {
   const sortedCandles = (0, import_react5.useMemo)(() => {
-    return Array.from(new Map(candles.map((c) => [c.t, c])).values()).sort((a, b) => a.t - b.t);
+    if (candles.length === 0) return [];
+    const seen = /* @__PURE__ */ new Set();
+    const unique = [];
+    for (const c of candles) {
+      if (!seen.has(c.t)) {
+        seen.add(c.t);
+        unique.push(c);
+      }
+    }
+    unique.sort((a, b) => a.t - b.t);
+    return unique;
   }, [candles]);
   const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
   const {

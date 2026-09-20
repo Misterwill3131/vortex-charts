@@ -18,7 +18,7 @@ export interface DrawBiasOptions {
   baselinePoints?: WhaleBiasPoint[];
 }
 
-export const DEFAULT_BIAS_PADDING: ViewportPadding = {
+const DEFAULT_BIAS_PADDING: ViewportPadding = {
   top: 14,
   bottom: 22,
   left: 38,
@@ -74,7 +74,7 @@ export function getBiasPointCoords(
 /**
  * Traces a smooth Catmull-Rom to Cubic Bezier spline path through points.
  */
-export function traceBiasSpline(ctx: CanvasRenderingContext2D, coords: { x: number; y: number }[]): void {
+function traceBiasSpline(ctx: CanvasRenderingContext2D, coords: { x: number; y: number }[]): void {
   if (coords.length < 2) return;
   if (coords.length === 2) {
     ctx.moveTo(coords[0].x, coords[0].y);

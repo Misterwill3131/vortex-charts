@@ -1,5 +1,3 @@
-export type LineStyleType = "solid" | "dotted" | "dashed";
-
 /**
  * Formats a candle timestamp. Intraday candles show HH:mm, daily candles
  * show the LOCAL calendar date. Pass `timeZone` (e.g. "America/New_York")
