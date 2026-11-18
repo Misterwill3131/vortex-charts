@@ -103,6 +103,7 @@ __export(index_exports, {
   nearestDatumIndex: () => nearestDatumIndex,
   nearestTimeIndex: () => nearestTimeIndex,
   offscreenBadgeText: () => offscreenBadgeText,
+  offscreenLevelTag: () => offscreenLevelTag,
   panViewport: () => panViewport,
   parseZoneColor: () => parseZoneColor,
   publishCrosshairSync: () => publishCrosshairSync,
@@ -600,10 +601,19 @@ function drawPriceLines(ctx, lines, bounds) {
 
 // src/engine/watermark.tsx
 var import_jsx_runtime = require("react/jsx-runtime");
-function drawVortexWatermark(ctx, bounds, opacity = 0.5) {
+function drawVortexWatermark(ctx, bounds, opacity = 0.5, at) {
   const { chartHeight, padding } = bounds;
-  const x = padding.left + 6;
-  const y = chartHeight - padding.bottom - 14;
+  let x = at ? at.x : padding.left + 6;
+  const y = at ? at.y : chartHeight - padding.bottom - 14;
+  if (at?.align === "right") {
+    ctx.save();
+    ctx.font = "bold 11px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    const w1 = measureTextWidth(ctx, "VorteX");
+    ctx.font = "600 11px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    const w2 = measureTextWidth(ctx, "bot.app");
+    ctx.restore();
+    x -= w1 + w2;
+  }
   ctx.save();
   ctx.globalAlpha = opacity;
   ctx.textBaseline = "middle";
@@ -7988,8 +7998,31 @@ var LEVEL_STYLES = {
 function levelStyle(kind) {
   return LEVEL_STYLES[kind] ?? LEVEL_STYLES.vwap;
 }
-function offscreenBadgeText(price, edge) {
-  return `${edge === "top" ? "\u25B2" : "\u25BC"} ${formatPrice(price)}`;
+function offscreenBadgeText(price, edge, tag) {
+  const arrow = edge === "top" ? "\u25B2" : "\u25BC";
+  return tag ? `${arrow} ${tag} ${formatPrice(price)}` : `${arrow} ${formatPrice(price)}`;
+}
+var KIND_ABBR = {
+  callWall: "CW",
+  putWall: "PW",
+  maxPain: "MP",
+  flip: "FLIP",
+  pin: "PIN",
+  gexKing: "KING",
+  vwap: "VWAP"
+};
+var MAX_TAG_LEN = 10;
+function offscreenLevelTag(level, compact = false) {
+  const abbr = KIND_ABBR[level.kind] ?? level.kind.toUpperCase();
+  if (compact) return abbr;
+  const label = level.label.trim();
+  if (label && label.length <= MAX_TAG_LEN && !/\d/.test(label)) return label;
+  return abbr;
+}
+function clampLabelX(x, width, min, max) {
+  const half = width / 2;
+  if (max - min <= width) return (min + max) / 2;
+  return Math.min(max - half, Math.max(min + half, x));
 }
 function finiteLevels(levels) {
   return levels.filter((l) => Number.isFinite(l.price));
@@ -8006,6 +8039,7 @@ var BADGE_FONT = "bold 10px ui-monospace, SFMono-Regular, Menlo, Consolas, monos
 var BADGE_H = 15;
 var TIME_AXIS_H = 20;
 var SPOT_DEFAULT = "#fb923c";
+var COMPACT_BADGE_WIDTH = 640;
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -8026,7 +8060,8 @@ var VortexGammaLevelsChart = ({
   timeZone = "America/New_York",
   emptyMessage = "No intraday data yet",
   className = "",
-  theme = {}
+  theme = {},
+  showWatermark = true
 }) => {
   const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
   const bullish = theme.colors?.bullish ?? VORTEX_THEME.colors.bullish;
@@ -8041,10 +8076,15 @@ var VortexGammaLevelsChart = ({
     if (!Number.isFinite(ref)) return null;
     return computeLevelBand(candles, ref, cleanLevels);
   }, [candles, spot, hasSpot, cleanLevels]);
+  const compactBadges = containerWidth < COMPACT_BADGE_WIDTH;
+  const offscreenTexts = (0, import_react29.useMemo)(
+    () => band?.offscreen.map((o) => offscreenBadgeText(o.level.price, o.edge, offscreenLevelTag(o.level, compactBadges))) ?? [],
+    [band, compactBadges]
+  );
   const layout = (0, import_react29.useMemo)(() => {
     const badgeTexts = [
       ...band?.inside.map((l) => formatPrice(l.price)) ?? [],
-      ...band?.offscreen.map((o) => offscreenBadgeText(o.level.price, o.edge)) ?? [],
+      ...offscreenTexts,
       hasSpot ? formatPrice(spot) : ""
     ];
     const maxLen = badgeTexts.reduce((m, t) => Math.max(m, t.length), 0);
@@ -8052,7 +8092,7 @@ var VortexGammaLevelsChart = ({
     const profileW = gammaProfile && gammaProfile.length > 0 ? Math.max(56, Math.round(containerWidth * 0.22)) : 0;
     const volH = hasVolume ? Math.max(40, Math.round(height * 0.16)) : 0;
     return { badgeCol, profileW, volH };
-  }, [band, hasSpot, spot, gammaProfile, containerWidth, height, hasVolume]);
+  }, [band, offscreenTexts, hasSpot, spot, gammaProfile, containerWidth, height, hasVolume]);
   const bounds = (0, import_react29.useMemo)(() => {
     if (!band) return null;
     const padding = {
@@ -8170,14 +8210,14 @@ var VortexGammaLevelsChart = ({
     for (const chip of layoutLevelChips(band.inside, toY, 0)) {
       badges.push({ y: chip.y, text: formatPrice(chip.price), color: levelStyle(chip.kinds[0]).color, fg: "#0b1220" });
     }
-    for (const o of band.offscreen) {
+    band.offscreen.forEach((o, i) => {
       badges.push({
         y: o.edge === "top" ? plotTop : plotBottom,
-        text: offscreenBadgeText(o.level.price, o.edge),
+        text: offscreenTexts[i],
         color: levelStyle(o.level.kind).color,
         fg: "#0b1220"
       });
-    }
+    });
     if (hasSpot) {
       const sy = Math.max(plotTop, Math.min(plotBottom, toY(spot)));
       badges.push({ y: sy, text: formatPrice(spot), color: spotColor, fg: "#0b1220" });
@@ -8225,11 +8265,15 @@ var VortexGammaLevelsChart = ({
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       for (let i = 0; i < count; i += step) {
-        ctx.fillText(formatCandleTime(candles[i].t, true, timeZone), indexToX(i, count, bounds), axisY);
+        const label = formatCandleTime(candles[i].t, true, timeZone);
+        const w = measureTextWidth(ctx, label);
+        ctx.fillText(label, clampLabelX(indexToX(i, count, bounds), w, 2, plotRight), axisY);
       }
     }
-    drawVortexWatermark(ctx, bounds);
-  }, [canvasRef, bounds, band, layout, containerWidth, height, dpr, candles, vwapSeries, gammaProfile, spot, hasSpot, bullish, bearish, spotColor, textColor, timeZone]);
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds, 0.5, { x: containerWidth - 6, y: height - 7, align: "right" });
+    }
+  }, [canvasRef, bounds, band, layout, offscreenTexts, showWatermark, containerWidth, height, dpr, candles, vwapSeries, gammaProfile, spot, hasSpot, bullish, bearish, spotColor, textColor, timeZone]);
   return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(
     "div",
     {
@@ -8328,6 +8372,7 @@ var VortexGammaLevelsChart = ({
   nearestDatumIndex,
   nearestTimeIndex,
   offscreenBadgeText,
+  offscreenLevelTag,
   panViewport,
   parseZoneColor,
   publishCrosshairSync,

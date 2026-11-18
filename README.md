@@ -110,7 +110,7 @@ export function ConeChart({ candles, currentPrice, rangeHigh, rangeLow, expirati
 
 ### 4. Gamma Levels (`VortexGammaLevelsChart`)
 
-Intraday candles with key gamma levels (call wall, put wall, max pain, flip, pin, GEX king, VWAP) drawn as dashed lines, label chips on the left, coloured price badges on the right axis, a spot badge, a price-aligned gamma profile panel and a volume sub-panel. The price band is fitted to the candles and spot plus levels within ±3% of spot; farther levels appear as `▲ price` / `▼ price` edge badges instead of squashing the candles. Levels with a non-finite price are ignored.
+Intraday candles with key gamma levels (call wall, put wall, max pain, flip, pin, GEX king, VWAP) drawn as dashed lines, label chips on the left, coloured price badges on the right axis, a spot badge, a price-aligned gamma profile panel and a volume sub-panel. The price band is fitted to the candles and spot plus levels within ±3% of spot; farther levels appear as named edge badges (`▲ CALL WALL 760.00`, or `▲ CW 760.00` below 640px wide: CW / PW / MP / FLIP / PIN / KING / VWAP) instead of squashing the candles. Levels with a non-finite price are ignored.
 
 ```tsx
 import { VortexGammaLevelsChart } from "vortex-charts";
@@ -141,6 +141,7 @@ import { VortexGammaLevelsChart } from "vortex-charts";
 | `emptyMessage` | `string` | `"No intraday data yet"` | Shown when `candles` is empty (levels still drawn) |
 | `className` | `string` | — | |
 | `theme` | `VortexThemeOverride` | — | `bullish`, `bearish`, `spot`, `text` colours |
+| `showWatermark` | `boolean` | `true` | Canvas VorteXbot.app mark in the time-axis row, bottom-right (pass `false` when the host renders its own) |
 
 ---
 
