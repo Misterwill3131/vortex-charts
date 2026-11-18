@@ -23,6 +23,12 @@ export { VortexChoroplethMap, type VortexChoroplethMapProps } from "./components
 export { VortexWhaleBiasChart, type VortexWhaleBiasChartProps } from "./components/VortexWhaleBiasChart";
 export { VortexMultiAreaChart, type VortexMultiAreaChartProps } from "./components/VortexMultiAreaChart";
 export { VortexGauge, type VortexGaugeProps } from "./components/VortexGauge";
+export {
+  VortexGammaLevelsChart,
+  levelStyle,
+  offscreenBadgeText,
+  type VortexGammaLevelsChartProps,
+} from "./components/VortexGammaLevelsChart";
 export { VortexChartControls, type VortexChartControlsProps } from "./components/VortexChartControls";
 
 // Engine & Interactive Tools
