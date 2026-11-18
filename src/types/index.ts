@@ -45,3 +45,28 @@ export type TargetRange = {
   high: number;
   low: number;
 };
+
+export type GammaLevelKind =
+  | "callWall"
+  | "putWall"
+  | "maxPain"
+  | "flip"
+  | "pin"
+  | "gexKing"
+  | "vwap";
+
+export type GammaLevel = {
+  price: number;
+  kind: GammaLevelKind;
+  label: string;
+  tag?: string;
+};
+
+export type GammaProfilePoint = { strike: number; gex: number };
+
+export type LevelChip = {
+  y: number;
+  price: number;
+  kinds: GammaLevelKind[];
+  text: string;
+};

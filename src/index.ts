@@ -86,6 +86,8 @@ export { drawPieChart, type PieSlice, type DrawPieOptions } from "./engine/pie";
 export { drawChoropleth, type GeoRegion, type GeoPolygon, type DrawChoroplethOptions } from "./engine/choropleth";
 export { drawWhaleBiasChart, computeBiasBounds, getBiasPointCoords, type WhaleBiasPoint, type DrawBiasOptions } from "./engine/bias";
 
+export { computeLevelBand, layoutLevelChips, drawGammaSideProfile, type LevelBand } from "./engine/gamma-levels";
+
 // Branding & Watermark
 export { drawVortexWatermark, VortexWatermarkOverlay } from "./engine/watermark";
 
@@ -114,6 +116,10 @@ export type {
   VwapPoint,
   ExpectedMoveSpec,
   TargetRange,
+  GammaLevelKind,
+  GammaLevel,
+  GammaProfilePoint,
+  LevelChip,
 } from "./types";
 
 // Utilities
