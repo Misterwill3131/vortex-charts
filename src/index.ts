@@ -27,6 +27,7 @@ export {
   VortexGammaLevelsChart,
   levelStyle,
   offscreenBadgeText,
+  offscreenLevelTag,
   type VortexGammaLevelsChartProps,
 } from "./components/VortexGammaLevelsChart";
 export { VortexChartControls, type VortexChartControlsProps } from "./components/VortexChartControls";

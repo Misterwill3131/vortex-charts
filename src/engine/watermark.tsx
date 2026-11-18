@@ -4,15 +4,27 @@ import { measureTextWidth } from "./text-cache";
 
 /**
  * Draws the clean "VorteXbot.app" watermark on the Canvas (no third-party or placeholder icon).
+ * Defaults to the bottom-left of the plot; `at` overrides the anchor point
+ * (`align: "right"` makes `x` the right edge of the text).
  */
 export function drawVortexWatermark(
   ctx: CanvasRenderingContext2D,
   bounds: ChartBounds,
-  opacity: number = 0.5
+  opacity: number = 0.5,
+  at?: { x: number; y: number; align?: "left" | "right" }
 ) {
   const { chartHeight, padding } = bounds;
-  const x = padding.left + 6;
-  const y = chartHeight - padding.bottom - 14;
+  let x = at ? at.x : padding.left + 6;
+  const y = at ? at.y : chartHeight - padding.bottom - 14;
+  if (at?.align === "right") {
+    ctx.save();
+    ctx.font = "bold 11px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    const w1 = measureTextWidth(ctx, "VorteX");
+    ctx.font = "600 11px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    const w2 = measureTextWidth(ctx, "bot.app");
+    ctx.restore();
+    x -= w1 + w2;
+  }
 
   ctx.save();
   ctx.globalAlpha = opacity;
