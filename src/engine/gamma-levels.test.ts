@@ -37,6 +37,46 @@ describe("layoutLevelChips", () => {
   });
 });
 
+describe("layoutLevelChips bounds", () => {
+  const mk = (n: number): GammaLevel[] =>
+    Array.from({ length: n }, (_, i) => ({ price: 750 - i * 0.1, kind: "pin" as const, label: "L" + i }));
+
+  it("keeps many chips inside [minY, maxY] in order, compressing the gap", () => {
+    const chips = layoutLevelChips(mk(12), (p) => (800 - p) * 10, 18, { minY: 20, maxY: 160 });
+    expect(chips).toHaveLength(12);
+    for (const c of chips) {
+      expect(c.y).toBeGreaterThanOrEqual(20 - 1e-6);
+      expect(c.y).toBeLessThanOrEqual(160 + 1e-6);
+    }
+    for (let i = 1; i < chips.length; i++) expect(chips[i].y).toBeGreaterThanOrEqual(chips[i - 1].y);
+    expect(chips.map((c) => c.text)).toEqual(mk(12).map((l) => l.label));
+  });
+
+  it("clamps a chip that starts above the top edge", () => {
+    const chips = layoutLevelChips(
+      [{ price: 790, kind: "pin", label: "A" }],
+      (p) => (800 - p) * 10 - 100,
+      18,
+      { minY: 10, maxY: 200 }
+    );
+    expect(chips[0].y).toBe(10);
+  });
+
+  it("centres a dense cluster near its prices instead of drifting down", () => {
+    const levels: GammaLevel[] = [
+      { price: 750, kind: "pin", label: "A" },
+      { price: 749.9, kind: "flip", label: "B" },
+      { price: 749.8, kind: "maxPain", label: "C" },
+    ];
+    const toY = (p: number) => (800 - p) * 10; // 500, 501, 502
+    const chips = layoutLevelChips(levels, toY, 18);
+    expect(chips[1].y).toBeCloseTo(501, 5);
+    expect(chips[0].y).toBeLessThan(500);
+    expect(chips[2].y - chips[1].y).toBeGreaterThanOrEqual(18 - 1e-6);
+    expect(chips[1].y - chips[0].y).toBeGreaterThanOrEqual(18 - 1e-6);
+  });
+});
+
 describe("computeLevelBand", () => {
   it("sends a far level offscreen", () => {
     const band = computeLevelBand(
@@ -105,5 +145,35 @@ describe("drawGammaSideProfile", () => {
       opts
     );
     expect(ctx.fillRect).toHaveBeenCalledTimes(3);
+  });
+
+  it("ignores strikes outside bounds and scales on visible points only", () => {
+    const calls: number[][] = [];
+    const ctx = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      fillRect: vi.fn((...a: number[]) => calls.push(a)),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke: vi.fn(),
+      fillStyle: "",
+      strokeStyle: "",
+      lineWidth: 1,
+    } as unknown as CanvasRenderingContext2D;
+    const bounds = computeBounds([740, 750], 400, 300);
+    drawGammaSideProfile(
+      ctx,
+      [
+        { strike: 5000, gex: 1e9 },
+        { strike: 745, gex: 10 },
+        { strike: 746, gex: -5 },
+      ],
+      bounds,
+      { x: 300, width: 80, posColor: "#0f0", negColor: "#f00" }
+    );
+    expect(calls).toHaveLength(2);
+    // Largest visible bar spans half the panel width (40px).
+    expect(Math.max(...calls.map((c) => c[2]))).toBeCloseTo(40, 5);
   });
 });

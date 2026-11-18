@@ -51,13 +51,17 @@ export function computeLevelBand(
 
 /**
  * Builds one chip per distinct price (same-price levels merge, text joined with
- * " · " in input order), then pushes chips apart so consecutive chips are at
- * least `minGapPx` apart, preserving top-to-bottom order.
+ * " · " in input order), then spreads chips so consecutive chips are at least
+ * `minGapPx` apart, preserving order. Overlapping runs are centred on their
+ * natural positions instead of drifting downward. When `bounds` is given,
+ * chips are kept within [minY, maxY]; if they cannot all fit at `minGapPx`,
+ * the gap is compressed evenly.
  */
 export function layoutLevelChips(
   levels: GammaLevel[],
   toY: (p: number) => number,
-  minGapPx = 18
+  minGapPx = 18,
+  bounds?: { minY: number; maxY: number }
 ): LevelChip[] {
   const groups = new Map<number, GammaLevel[]>();
   for (const l of levels) {
@@ -74,9 +78,41 @@ export function layoutLevelChips(
   }));
 
   chips.sort((a, b) => a.y - b.y);
-  for (let i = 1; i < chips.length; i++) {
-    const minY = chips[i - 1].y + minGapPx;
-    if (chips[i].y < minY) chips[i].y = minY;
+  const n = chips.length;
+  if (n === 0) return chips;
+
+  let gap = minGapPx;
+  if (bounds && n > 1) gap = Math.max(0, Math.min(gap, (bounds.maxY - bounds.minY) / (n - 1)));
+
+  const natural = chips.map((c) => c.y);
+  // Cluster = run of chips laid out at exact `gap` spacing from `top`.
+  const clusters: { start: number; count: number; sum: number; top: number }[] = [];
+  const place = (c: { start: number; count: number; sum: number; top: number }) => {
+    c.top = c.sum / c.count;
+    if (bounds) c.top = Math.max(bounds.minY, Math.min(c.top, bounds.maxY - (c.count - 1) * gap));
+  };
+
+  for (let i = 0; i < n; i++) {
+    let cur = { start: i, count: 1, sum: natural[i], top: 0 };
+    place(cur);
+    for (;;) {
+      const prev = clusters[clusters.length - 1];
+      if (!prev || cur.top >= prev.top + prev.count * gap - 1e-9) break;
+      clusters.pop();
+      // Items of cur shift by prev.count * gap relative to prev's start.
+      cur = {
+        start: prev.start,
+        count: prev.count + cur.count,
+        sum: prev.sum + cur.sum - cur.count * prev.count * gap,
+        top: 0,
+      };
+      place(cur);
+    }
+    clusters.push(cur);
+  }
+
+  for (const c of clusters) {
+    for (let k = 0; k < c.count; k++) chips[c.start + k].y = c.top + k * gap;
   }
   return chips;
 }
@@ -93,14 +129,20 @@ export function drawGammaSideProfile(
 ): void {
   if (!profile || profile.length === 0) return;
 
+  // Only strikes inside the visible price range are scaled and drawn.
+  const visible = profile.filter(
+    (p) => p.strike >= bounds.minPrice && p.strike <= bounds.maxPrice
+  );
+  if (visible.length === 0) return;
+
   let maxAbs = 0;
-  for (const p of profile) {
+  for (const p of visible) {
     const a = Math.abs(p.gex);
     if (a > maxAbs) maxAbs = a;
   }
   if (maxAbs <= 0) return;
 
-  const sorted = [...profile].sort((a, b) => a.strike - b.strike);
+  const sorted = [...visible].sort((a, b) => a.strike - b.strike);
   const ys = sorted.map((p) => priceToY(p.strike, bounds));
   const half = opts.width / 2;
   const centerX = opts.x + half;
@@ -114,6 +156,11 @@ export function drawGammaSideProfile(
   const rowH = Math.max(1, isFinite(minGap) ? minGap * 0.8 : 4);
 
   ctx.save();
+  if (typeof ctx.rect === "function" && typeof ctx.clip === "function") {
+    ctx.beginPath();
+    ctx.rect(opts.x, bounds.padding.top, opts.width, bounds.plotHeight);
+    ctx.clip();
+  }
   for (let i = 0; i < sorted.length; i++) {
     const { gex } = sorted[i];
     const w = (Math.abs(gex) / maxAbs) * half;
