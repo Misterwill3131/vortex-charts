@@ -23,6 +23,13 @@ export { VortexChoroplethMap, type VortexChoroplethMapProps } from "./components
 export { VortexWhaleBiasChart, type VortexWhaleBiasChartProps } from "./components/VortexWhaleBiasChart";
 export { VortexMultiAreaChart, type VortexMultiAreaChartProps } from "./components/VortexMultiAreaChart";
 export { VortexGauge, type VortexGaugeProps } from "./components/VortexGauge";
+export {
+  VortexGammaLevelsChart,
+  levelStyle,
+  offscreenBadgeText,
+  offscreenLevelTag,
+  type VortexGammaLevelsChartProps,
+} from "./components/VortexGammaLevelsChart";
 export { VortexChartControls, type VortexChartControlsProps } from "./components/VortexChartControls";
 
 // Engine & Interactive Tools
@@ -86,6 +93,8 @@ export { drawPieChart, type PieSlice, type DrawPieOptions } from "./engine/pie";
 export { drawChoropleth, type GeoRegion, type GeoPolygon, type DrawChoroplethOptions } from "./engine/choropleth";
 export { drawWhaleBiasChart, computeBiasBounds, getBiasPointCoords, type WhaleBiasPoint, type DrawBiasOptions } from "./engine/bias";
 
+export { computeLevelBand, layoutLevelChips, drawGammaSideProfile, type LevelBand } from "./engine/gamma-levels";
+
 // Branding & Watermark
 export { drawVortexWatermark, VortexWatermarkOverlay } from "./engine/watermark";
 
@@ -114,6 +123,10 @@ export type {
   VwapPoint,
   ExpectedMoveSpec,
   TargetRange,
+  GammaLevelKind,
+  GammaLevel,
+  GammaProfilePoint,
+  LevelChip,
 } from "./types";
 
 // Utilities

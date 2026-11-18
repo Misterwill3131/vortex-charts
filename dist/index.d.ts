@@ -42,6 +42,23 @@ type TargetRange = {
     high: number;
     low: number;
 };
+type GammaLevelKind = "callWall" | "putWall" | "maxPain" | "flip" | "pin" | "gexKing" | "vwap";
+type GammaLevel = {
+    price: number;
+    kind: GammaLevelKind;
+    label: string;
+    tag?: string;
+};
+type GammaProfilePoint = {
+    strike: number;
+    gex: number;
+};
+type LevelChip = {
+    y: number;
+    price: number;
+    kinds: GammaLevelKind[];
+    text: string;
+};
 
 declare const VORTEX_THEME: {
     readonly colors: {
@@ -914,6 +931,41 @@ interface VortexGaugeProps {
 }
 declare const VortexGauge: React__default.FC<VortexGaugeProps>;
 
+interface VortexGammaLevelsChartProps {
+    candles: Candle[];
+    vwapSeries?: {
+        t: number;
+        vwap: number;
+    }[];
+    levels: GammaLevel[];
+    gammaProfile?: GammaProfilePoint[];
+    spot: number;
+    showLevels?: boolean;
+    height?: number;
+    timeZone?: string;
+    emptyMessage?: string;
+    className?: string;
+    theme?: VortexThemeOverride;
+    showWatermark?: boolean;
+}
+/** Line colour and dash pattern for a gamma level kind. */
+declare function levelStyle(kind: GammaLevelKind): {
+    color: string;
+    dash: number[];
+};
+/**
+ * Edge badge text for a level outside the visible band, e.g. "▲ 759.73", or
+ * with a level tag "▲ CALL WALL 760.00".
+ */
+declare function offscreenBadgeText(price: number, edge: "top" | "bottom", tag?: string): string;
+/**
+ * Short name of a level for its offscreen edge badge: the level's own label
+ * when it is short and carries no price, otherwise (or when `compact`) the
+ * kind abbreviation (CW / PW / MP / FLIP / PIN / KING / VWAP).
+ */
+declare function offscreenLevelTag(level: GammaLevel, compact?: boolean): string;
+declare const VortexGammaLevelsChart: React__default.FC<VortexGammaLevelsChartProps>;
+
 interface VortexChartControlsProps {
     onZoomIn: () => void;
     onZoomOut: () => void;
@@ -1156,10 +1208,54 @@ interface GaugeOptions {
  */
 declare function drawRadialGauge(ctx: CanvasRenderingContext2D, width: number, height: number, value: number, options?: GaugeOptions): void;
 
+interface LevelBand {
+    min: number;
+    max: number;
+    inside: GammaLevel[];
+    offscreen: {
+        level: GammaLevel;
+        edge: "top" | "bottom";
+    }[];
+}
+/**
+ * Price band for a gamma levels chart: candle high/low and spot, extended to
+ * include levels within `spot * (1 ± bandPct)`, then padded. Levels that still
+ * fall outside the band are reported as offscreen with the edge they belong to.
+ */
+declare function computeLevelBand(candles: Candle[], spot: number, levels: GammaLevel[], bandPct?: number): LevelBand;
+/**
+ * Builds one chip per distinct price (same-price levels merge, text joined with
+ * " · " in input order), then spreads chips so consecutive chips are at least
+ * `minGapPx` apart, preserving order. Overlapping runs are centred on their
+ * natural positions instead of drifting downward. When `bounds` is given,
+ * chips are kept within [minY, maxY]; if they cannot all fit at `minGapPx`,
+ * the gap is compressed evenly.
+ */
+declare function layoutLevelChips(levels: GammaLevel[], toY: (p: number) => number, minGapPx?: number, bounds?: {
+    minY: number;
+    maxY: number;
+}): LevelChip[];
+/**
+ * Draws a diverging gamma-exposure profile as a price-aligned side panel.
+ * Positive GEX extends right of the panel's center line, negative extends left.
+ */
+declare function drawGammaSideProfile(ctx: CanvasRenderingContext2D, profile: GammaProfilePoint[], bounds: ChartBounds, opts: {
+    x: number;
+    width: number;
+    posColor: string;
+    negColor: string;
+}): void;
+
 /**
  * Draws the clean "VorteXbot.app" watermark on the Canvas (no third-party or placeholder icon).
+ * Defaults to the bottom-left of the plot; `at` overrides the anchor point
+ * (`align: "right"` makes `x` the right edge of the text).
  */
-declare function drawVortexWatermark(ctx: CanvasRenderingContext2D, bounds: ChartBounds, opacity?: number): void;
+declare function drawVortexWatermark(ctx: CanvasRenderingContext2D, bounds: ChartBounds, opacity?: number, at?: {
+    x: number;
+    y: number;
+    align?: "left" | "right";
+}): void;
 /**
  * Reusable React component for interactive VorteXbot.app watermark
  */
@@ -1328,4 +1424,4 @@ declare function formatPrice(price: number): string;
  */
 declare function colorWithAlpha(color: string, alpha: number): string;
 
-export { type AreaDataPoint, type BarDatum, type BarReferenceLine, type BoxPlotInputItem, type BoxPlotItem, type Candle, type ChartHoverZone, type ChartZone, type CrosshairSyncEvent, type DrawAreaOptions, type DrawBiasOptions, type DrawBoxPlotOptions, type DrawChoroplethOptions, type DrawFootprintOptions, type DrawHeatmapOptions, type DrawLineOptions, type DrawMultiAreaOptions, type DrawOhlcOptions, type DrawPieOptions, type DrawPnFOptions, type DrawRadarOptions, type DrawRenkoOptions, type DrawScatterOptions, type DrawVolumeProfileOptions, type DrawWaterfallOptions, type ExpectedMoveSpec, type FootprintBar, type FootprintLevel, type GaugeOptions, type GenericCrosshairOptions, type GeoPolygon, type GeoRegion, type HeatmapData, type LineSeriesPoint, type MultiAreaSeries, type MultiLineSeries, type PieSlice, type PnFColumn, type PnFType, type PremarketRange, type PriceLine, type PriorDayRange, type RadarDimension, type RadarSeries, type RenkoBrick, type RulerPoint, type RulerState, type ScatterBounds, type ScatterPoint, type TargetRange, type TickData, type TimeScaleMapping, VORTEX_THEME, type VerticalScaleOptions, type ViewportState, type VolumeProfileBin, type VolumeProfileResult, VortexAreaChart, type VortexAreaChartProps, VortexBarChart, type VortexBarChartProps, VortexBoxPlot, type VortexBoxPlotProps, VortexCandleChart, type VortexCandleChartProps, VortexChartControls, type VortexChartControlsProps, VortexChoroplethMap, type VortexChoroplethMapProps, VortexConeChart, type VortexConeChartProps, VortexFootprintChart, type VortexFootprintChartProps, VortexGauge, type VortexGaugeProps, VortexHeatmap, type VortexHeatmapProps, VortexHeikinAshiChart, type VortexHeikinAshiChartProps, VortexLineChart, type VortexLineChartProps, VortexMultiAreaChart, type VortexMultiAreaChartProps, VortexMultiLineChart, type VortexMultiLineChartProps, VortexOhlcChart, type VortexOhlcChartProps, VortexPieChart, type VortexPieChartProps, VortexPointFigureChart, type VortexPointFigureChartProps, VortexRadarChart, type VortexRadarChartProps, VortexRangeBarChart, type VortexRangeBarChartProps, VortexRangeChart, type VortexRangeChartProps, VortexRenkoChart, type VortexRenkoChartProps, VortexScatterPlot, type VortexScatterPlotProps, type VortexThemeOverride, VortexVolumeProfileChart, type VortexVolumeProfileChartProps, VortexWaterfallChart, type VortexWaterfallChartProps, VortexWatermarkOverlay, VortexWhaleBiasChart, type VortexWhaleBiasChartProps, type VwapPoint, type WaterfallBar, type WhaleBiasPoint, colorWithAlpha, computeBarBounds, computeBiasBounds, computeBoxPlotStats, computeHeikinAshi, computePointAndFigure, computeRangeBars, computeRenkoBricks, computeScatterBounds, computeVolumeProfile, computeZoneRect, createTailViewport, createViewport, drawAreaChart, drawBarChart, drawBarHoverBand, drawBoxPlot, drawChartZones, drawChoropleth, drawCrosshair, drawFootprintChart, drawGenericCrosshair, drawHeatmap, drawLineChart, drawMultiAreaChart, drawOhlcBars, drawPieChart, drawPointAndFigure, drawRadarChart, drawRadialGauge, drawRenkoBricks, drawRulerOverlay, drawScatterPlot, drawVolumeProfile, drawVortexWatermark, drawWaterfallChart, drawWhaleBiasChart, followViewport, formatCandleTime, formatChange, formatPrice, formatVolume, getBiasPointCoords, getVisibleCount, getZoomLevel, isViewportZoomed, measureTextWidth, nearestDatumIndex, nearestTimeIndex, panViewport, parseZoneColor, publishCrosshairSync, resetViewport, subscribeCrosshairSync, thinLabels, timeToX, useChartPointer, useChartSurface, useChartViewport, useCrosshairSync, viewportIndexToX, viewportXToIndex, xToTime, zoomViewport };
+export { type AreaDataPoint, type BarDatum, type BarReferenceLine, type BoxPlotInputItem, type BoxPlotItem, type Candle, type ChartHoverZone, type ChartZone, type CrosshairSyncEvent, type DrawAreaOptions, type DrawBiasOptions, type DrawBoxPlotOptions, type DrawChoroplethOptions, type DrawFootprintOptions, type DrawHeatmapOptions, type DrawLineOptions, type DrawMultiAreaOptions, type DrawOhlcOptions, type DrawPieOptions, type DrawPnFOptions, type DrawRadarOptions, type DrawRenkoOptions, type DrawScatterOptions, type DrawVolumeProfileOptions, type DrawWaterfallOptions, type ExpectedMoveSpec, type FootprintBar, type FootprintLevel, type GammaLevel, type GammaLevelKind, type GammaProfilePoint, type GaugeOptions, type GenericCrosshairOptions, type GeoPolygon, type GeoRegion, type HeatmapData, type LevelBand, type LevelChip, type LineSeriesPoint, type MultiAreaSeries, type MultiLineSeries, type PieSlice, type PnFColumn, type PnFType, type PremarketRange, type PriceLine, type PriorDayRange, type RadarDimension, type RadarSeries, type RenkoBrick, type RulerPoint, type RulerState, type ScatterBounds, type ScatterPoint, type TargetRange, type TickData, type TimeScaleMapping, VORTEX_THEME, type VerticalScaleOptions, type ViewportState, type VolumeProfileBin, type VolumeProfileResult, VortexAreaChart, type VortexAreaChartProps, VortexBarChart, type VortexBarChartProps, VortexBoxPlot, type VortexBoxPlotProps, VortexCandleChart, type VortexCandleChartProps, VortexChartControls, type VortexChartControlsProps, VortexChoroplethMap, type VortexChoroplethMapProps, VortexConeChart, type VortexConeChartProps, VortexFootprintChart, type VortexFootprintChartProps, VortexGammaLevelsChart, type VortexGammaLevelsChartProps, VortexGauge, type VortexGaugeProps, VortexHeatmap, type VortexHeatmapProps, VortexHeikinAshiChart, type VortexHeikinAshiChartProps, VortexLineChart, type VortexLineChartProps, VortexMultiAreaChart, type VortexMultiAreaChartProps, VortexMultiLineChart, type VortexMultiLineChartProps, VortexOhlcChart, type VortexOhlcChartProps, VortexPieChart, type VortexPieChartProps, VortexPointFigureChart, type VortexPointFigureChartProps, VortexRadarChart, type VortexRadarChartProps, VortexRangeBarChart, type VortexRangeBarChartProps, VortexRangeChart, type VortexRangeChartProps, VortexRenkoChart, type VortexRenkoChartProps, VortexScatterPlot, type VortexScatterPlotProps, type VortexThemeOverride, VortexVolumeProfileChart, type VortexVolumeProfileChartProps, VortexWaterfallChart, type VortexWaterfallChartProps, VortexWatermarkOverlay, VortexWhaleBiasChart, type VortexWhaleBiasChartProps, type VwapPoint, type WaterfallBar, type WhaleBiasPoint, colorWithAlpha, computeBarBounds, computeBiasBounds, computeBoxPlotStats, computeHeikinAshi, computeLevelBand, computePointAndFigure, computeRangeBars, computeRenkoBricks, computeScatterBounds, computeVolumeProfile, computeZoneRect, createTailViewport, createViewport, drawAreaChart, drawBarChart, drawBarHoverBand, drawBoxPlot, drawChartZones, drawChoropleth, drawCrosshair, drawFootprintChart, drawGammaSideProfile, drawGenericCrosshair, drawHeatmap, drawLineChart, drawMultiAreaChart, drawOhlcBars, drawPieChart, drawPointAndFigure, drawRadarChart, drawRadialGauge, drawRenkoBricks, drawRulerOverlay, drawScatterPlot, drawVolumeProfile, drawVortexWatermark, drawWaterfallChart, drawWhaleBiasChart, followViewport, formatCandleTime, formatChange, formatPrice, formatVolume, getBiasPointCoords, getVisibleCount, getZoomLevel, isViewportZoomed, layoutLevelChips, levelStyle, measureTextWidth, nearestDatumIndex, nearestTimeIndex, offscreenBadgeText, offscreenLevelTag, panViewport, parseZoneColor, publishCrosshairSync, resetViewport, subscribeCrosshairSync, thinLabels, timeToX, useChartPointer, useChartSurface, useChartViewport, useCrosshairSync, viewportIndexToX, viewportXToIndex, xToTime, zoomViewport };

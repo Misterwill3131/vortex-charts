@@ -479,10 +479,19 @@ function drawPriceLines(ctx, lines, bounds) {
 
 // src/engine/watermark.tsx
 import { jsx, jsxs } from "react/jsx-runtime";
-function drawVortexWatermark(ctx, bounds, opacity = 0.5) {
+function drawVortexWatermark(ctx, bounds, opacity = 0.5, at) {
   const { chartHeight, padding } = bounds;
-  const x = padding.left + 6;
-  const y = chartHeight - padding.bottom - 14;
+  let x = at ? at.x : padding.left + 6;
+  const y = at ? at.y : chartHeight - padding.bottom - 14;
+  if (at?.align === "right") {
+    ctx.save();
+    ctx.font = "bold 11px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    const w1 = measureTextWidth(ctx, "VorteX");
+    ctx.font = "600 11px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    const w2 = measureTextWidth(ctx, "bot.app");
+    ctx.restore();
+    x -= w1 + w2;
+  }
   ctx.save();
   ctx.globalAlpha = opacity;
   ctx.textBaseline = "middle";
@@ -7731,6 +7740,432 @@ var VortexGauge = ({
     }
   );
 };
+
+// src/components/VortexGammaLevelsChart.tsx
+import { useEffect as useEffect29, useMemo as useMemo24 } from "react";
+
+// src/engine/gamma-levels.ts
+function computeLevelBand(candles, spot, levels, bandPct = 0.03) {
+  let lo = spot;
+  let hi = spot;
+  for (const c of candles) {
+    if (c.low < lo) lo = c.low;
+    if (c.high > hi) hi = c.high;
+  }
+  const nearLo = spot * (1 - bandPct);
+  const nearHi = spot * (1 + bandPct);
+  for (const l of levels) {
+    if (l.price >= nearLo && l.price <= nearHi) {
+      if (l.price < lo) lo = l.price;
+      if (l.price > hi) hi = l.price;
+    }
+  }
+  const pad = Math.max((hi - lo) * 0.06, spot * 1e-3);
+  const min = lo - pad;
+  const max = hi + pad;
+  const inside = [];
+  const offscreen = [];
+  for (const l of levels) {
+    if (l.price >= min && l.price <= max) inside.push(l);
+    else offscreen.push({ level: l, edge: l.price > max ? "top" : "bottom" });
+  }
+  return { min, max, inside, offscreen };
+}
+function layoutLevelChips(levels, toY, minGapPx = 18, bounds) {
+  const groups2 = /* @__PURE__ */ new Map();
+  for (const l of levels) {
+    const g = groups2.get(l.price);
+    if (g) g.push(l);
+    else groups2.set(l.price, [l]);
+  }
+  const chips = Array.from(groups2.entries()).map(([price, group]) => ({
+    y: toY(price),
+    price,
+    kinds: group.map((l) => l.kind),
+    text: group.map((l) => l.label).join(" \xB7 ")
+  }));
+  chips.sort((a, b) => a.y - b.y);
+  const n = chips.length;
+  if (n === 0) return chips;
+  let gap = minGapPx;
+  if (bounds && n > 1) gap = Math.max(0, Math.min(gap, (bounds.maxY - bounds.minY) / (n - 1)));
+  const natural = chips.map((c) => c.y);
+  const clusters = [];
+  const place = (c) => {
+    c.top = c.sum / c.count;
+    if (bounds) c.top = Math.max(bounds.minY, Math.min(c.top, bounds.maxY - (c.count - 1) * gap));
+  };
+  for (let i = 0; i < n; i++) {
+    let cur = { start: i, count: 1, sum: natural[i], top: 0 };
+    place(cur);
+    for (; ; ) {
+      const prev = clusters[clusters.length - 1];
+      if (!prev || cur.top >= prev.top + prev.count * gap - 1e-9) break;
+      clusters.pop();
+      cur = {
+        start: prev.start,
+        count: prev.count + cur.count,
+        sum: prev.sum + cur.sum - cur.count * prev.count * gap,
+        top: 0
+      };
+      place(cur);
+    }
+    clusters.push(cur);
+  }
+  for (const c of clusters) {
+    for (let k = 0; k < c.count; k++) chips[c.start + k].y = c.top + k * gap;
+  }
+  return chips;
+}
+function drawGammaSideProfile(ctx, profile, bounds, opts) {
+  if (!profile || profile.length === 0) return;
+  const visible = profile.filter(
+    (p) => p.strike >= bounds.minPrice && p.strike <= bounds.maxPrice
+  );
+  if (visible.length === 0) return;
+  let maxAbs = 0;
+  for (const p of visible) {
+    const a = Math.abs(p.gex);
+    if (a > maxAbs) maxAbs = a;
+  }
+  if (maxAbs <= 0) return;
+  const sorted = [...visible].sort((a, b) => a.strike - b.strike);
+  const ys = sorted.map((p) => priceToY(p.strike, bounds));
+  const half = opts.width / 2;
+  const centerX = opts.x + half;
+  let minGap = Infinity;
+  for (let i = 1; i < ys.length; i++) {
+    const g = Math.abs(ys[i - 1] - ys[i]);
+    if (g > 0 && g < minGap) minGap = g;
+  }
+  const rowH = Math.max(1, isFinite(minGap) ? minGap * 0.8 : 4);
+  ctx.save();
+  if (typeof ctx.rect === "function" && typeof ctx.clip === "function") {
+    ctx.beginPath();
+    ctx.rect(opts.x, bounds.padding.top, opts.width, bounds.plotHeight);
+    ctx.clip();
+  }
+  for (let i = 0; i < sorted.length; i++) {
+    const { gex } = sorted[i];
+    const w = Math.abs(gex) / maxAbs * half;
+    if (w <= 0) continue;
+    ctx.fillStyle = gex >= 0 ? opts.posColor : opts.negColor;
+    const x = gex >= 0 ? centerX : centerX - w;
+    ctx.fillRect(x, ys[i] - rowH / 2, w, rowH);
+  }
+  ctx.strokeStyle = "rgba(148, 163, 184, 0.35)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(centerX, bounds.padding.top);
+  ctx.lineTo(centerX, bounds.padding.top + bounds.plotHeight);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// src/components/VortexGammaLevelsChart.tsx
+import { jsx as jsx27, jsxs as jsxs26 } from "react/jsx-runtime";
+var LEVEL_STYLES = {
+  callWall: { color: "#f87171", dash: [5, 4] },
+  putWall: { color: "#34d399", dash: [5, 4] },
+  maxPain: { color: "#fbbf24", dash: [1, 5] },
+  flip: { color: "#60a5fa", dash: [6, 4] },
+  pin: { color: "#2dd4bf", dash: [1, 5] },
+  gexKing: { color: "#a78bfa", dash: [6, 3] },
+  vwap: { color: "#9ca3af", dash: [8, 5] }
+};
+function levelStyle(kind) {
+  return LEVEL_STYLES[kind] ?? LEVEL_STYLES.vwap;
+}
+function offscreenBadgeText(price, edge, tag) {
+  const arrow = edge === "top" ? "\u25B2" : "\u25BC";
+  return tag ? `${arrow} ${tag} ${formatPrice(price)}` : `${arrow} ${formatPrice(price)}`;
+}
+var KIND_ABBR = {
+  callWall: "CW",
+  putWall: "PW",
+  maxPain: "MP",
+  flip: "FLIP",
+  pin: "PIN",
+  gexKing: "KING",
+  vwap: "VWAP"
+};
+var MAX_TAG_LEN = 10;
+function offscreenLevelTag(level, compact = false) {
+  const abbr = KIND_ABBR[level.kind] ?? level.kind.toUpperCase();
+  if (compact) return abbr;
+  const label = level.label.trim();
+  if (label && label.length <= MAX_TAG_LEN && !/\d/.test(label)) return label;
+  return abbr;
+}
+function clampLabelX(x, width, min, max) {
+  const half = width / 2;
+  if (max - min <= width) return (min + max) / 2;
+  return Math.min(max - half, Math.max(min + half, x));
+}
+function finiteLevels(levels) {
+  return levels.filter((l) => Number.isFinite(l.price));
+}
+function spreadLabelYs(ys, gap, minY, maxY) {
+  const items = ys.map((_, i) => ({ price: i, kind: "pin", label: String(i) }));
+  const laid = layoutLevelChips(items, (i) => ys[i], gap, { minY, maxY });
+  const out = new Array(ys.length);
+  for (const c of laid) out[c.price] = c.y;
+  return out;
+}
+var FONT = "10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+var BADGE_FONT = "bold 10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+var BADGE_H = 15;
+var TIME_AXIS_H = 20;
+var SPOT_DEFAULT = "#fb923c";
+var COMPACT_BADGE_WIDTH = 640;
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+var VortexGammaLevelsChart = ({
+  candles,
+  vwapSeries,
+  levels,
+  gammaProfile,
+  spot,
+  showLevels = true,
+  height = 420,
+  timeZone = "America/New_York",
+  emptyMessage = "No intraday data yet",
+  className = "",
+  theme = {},
+  showWatermark = true
+}) => {
+  const { containerRef, canvasRef, overlayRef, containerWidth, dpr } = useChartSurface();
+  const bullish = theme.colors?.bullish ?? VORTEX_THEME.colors.bullish;
+  const bearish = theme.colors?.bearish ?? VORTEX_THEME.colors.bearish;
+  const spotColor = theme.colors?.spot ?? SPOT_DEFAULT;
+  const textColor = theme.colors?.text ?? VORTEX_THEME.colors.text;
+  const cleanLevels = useMemo24(() => showLevels ? finiteLevels(levels) : [], [levels, showLevels]);
+  const hasSpot = Number.isFinite(spot);
+  const hasVolume = candles.some((c) => (c.volume ?? 0) > 0);
+  const band = useMemo24(() => {
+    const ref = hasSpot ? spot : candles.length ? candles[candles.length - 1].close : NaN;
+    if (!Number.isFinite(ref)) return null;
+    return computeLevelBand(candles, ref, cleanLevels);
+  }, [candles, spot, hasSpot, cleanLevels]);
+  const compactBadges = containerWidth < COMPACT_BADGE_WIDTH;
+  const offscreenTexts = useMemo24(
+    () => band?.offscreen.map((o) => offscreenBadgeText(o.level.price, o.edge, offscreenLevelTag(o.level, compactBadges))) ?? [],
+    [band, compactBadges]
+  );
+  const layout = useMemo24(() => {
+    const badgeTexts = [
+      ...band?.inside.map((l) => formatPrice(l.price)) ?? [],
+      ...offscreenTexts,
+      hasSpot ? formatPrice(spot) : ""
+    ];
+    const maxLen = badgeTexts.reduce((m, t) => Math.max(m, t.length), 0);
+    const badgeCol = Math.max(64, Math.ceil(maxLen * 6.4 + 16));
+    const profileW = gammaProfile && gammaProfile.length > 0 ? Math.max(56, Math.round(containerWidth * 0.22)) : 0;
+    const volH = hasVolume ? Math.max(40, Math.round(height * 0.16)) : 0;
+    return { badgeCol, profileW, volH };
+  }, [band, offscreenTexts, hasSpot, spot, gammaProfile, containerWidth, height, hasVolume]);
+  const bounds = useMemo24(() => {
+    if (!band) return null;
+    const padding = {
+      top: 22,
+      left: 8,
+      right: layout.badgeCol + layout.profileW,
+      bottom: layout.volH + TIME_AXIS_H + (layout.volH ? 6 : 0)
+    };
+    const base = computeBounds([band.min, band.max], containerWidth, height, padding);
+    return { ...base, minPrice: band.min, maxPrice: band.max, priceRange: Math.max(band.max - band.min, 1e-4) };
+  }, [band, layout, containerWidth, height]);
+  useEffect29(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !bounds || !band) return;
+    const setup = setupCanvasDpi(canvas, containerWidth, height);
+    if (!setup) return;
+    const { ctx } = setup;
+    ctx.clearRect(0, 0, containerWidth, height);
+    const { padding, plotHeight, plotWidth } = bounds;
+    const plotTop = padding.top;
+    const plotBottom = plotTop + plotHeight;
+    const plotRight = padding.left + plotWidth;
+    const badgeX = plotRight + 4;
+    const badgeW = layout.badgeCol - 8;
+    const toY = (p) => priceToY(p, bounds);
+    const count = candles.length;
+    drawGridAndAxes(ctx, bounds);
+    if (layout.profileW > 0 && gammaProfile) {
+      const px = plotRight + layout.badgeCol;
+      ctx.fillStyle = "rgba(255, 255, 255, 0.02)";
+      ctx.fillRect(px, plotTop, layout.profileW, plotHeight);
+      ctx.font = FONT;
+      ctx.fillStyle = textColor;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("GAMMA", px + layout.profileW / 2, plotTop - 11);
+      drawGammaSideProfile(ctx, gammaProfile, bounds, {
+        x: px + 2,
+        width: layout.profileW - 4,
+        posColor: colorWithAlpha(bullish, 0.55),
+        negColor: colorWithAlpha(bearish, 0.6)
+      });
+    }
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(padding.left, plotTop, plotWidth, plotHeight);
+    ctx.clip();
+    for (const l of band.inside) {
+      const { color, dash } = levelStyle(l.kind);
+      const y = Math.round(toY(l.price)) + 0.5;
+      ctx.strokeStyle = colorWithAlpha(color, 0.75);
+      ctx.lineWidth = 1;
+      ctx.setLineDash(dash);
+      ctx.beginPath();
+      ctx.moveTo(padding.left, y);
+      ctx.lineTo(plotRight, y);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    if (count > 0) {
+      drawCandlesticks(ctx, candles, bounds, { upColor: bullish, downColor: bearish });
+    }
+    if (vwapSeries && vwapSeries.length > 1 && count > 0) {
+      const idxByT = /* @__PURE__ */ new Map();
+      candles.forEach((c, i) => idxByT.set(c.t, i));
+      ctx.strokeStyle = levelStyle("vwap").color;
+      ctx.lineWidth = 1.25;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      let started = false;
+      for (const p of vwapSeries) {
+        const i = idxByT.get(p.t);
+        if (i === void 0 || !Number.isFinite(p.vwap)) continue;
+        const x = indexToX(i, count, bounds);
+        const y = toY(p.vwap);
+        if (started) ctx.lineTo(x, y);
+        else {
+          ctx.moveTo(x, y);
+          started = true;
+        }
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    if (hasSpot && spot >= bounds.minPrice && spot <= bounds.maxPrice) {
+      const y = Math.round(toY(spot)) + 0.5;
+      ctx.strokeStyle = colorWithAlpha(spotColor, 0.45);
+      ctx.setLineDash([2, 3]);
+      ctx.beginPath();
+      ctx.moveTo(padding.left, y);
+      ctx.lineTo(plotRight, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+    const chipBounds = { minY: plotTop + 9, maxY: plotBottom - 9 };
+    const chips = layoutLevelChips(band.inside, toY, 18, chipBounds);
+    ctx.font = BADGE_FONT;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+    for (const chip of chips) {
+      const { color } = levelStyle(chip.kinds[0]);
+      const w = measureTextWidth(ctx, chip.text) + 12;
+      const x = padding.left + 6;
+      roundRect(ctx, x, chip.y - BADGE_H / 2, w, BADGE_H, 3);
+      ctx.fillStyle = "rgba(2, 6, 22, 0.88)";
+      ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.fillText(chip.text, x + 6, chip.y + 0.5);
+    }
+    const badges = [];
+    for (const chip of layoutLevelChips(band.inside, toY, 0)) {
+      badges.push({ y: chip.y, text: formatPrice(chip.price), color: levelStyle(chip.kinds[0]).color, fg: "#0b1220" });
+    }
+    band.offscreen.forEach((o, i) => {
+      badges.push({
+        y: o.edge === "top" ? plotTop : plotBottom,
+        text: offscreenTexts[i],
+        color: levelStyle(o.level.kind).color,
+        fg: "#0b1220"
+      });
+    });
+    if (hasSpot) {
+      const sy = Math.max(plotTop, Math.min(plotBottom, toY(spot)));
+      badges.push({ y: sy, text: formatPrice(spot), color: spotColor, fg: "#0b1220" });
+    }
+    const minBadgeY = Math.max(BADGE_H / 2 + 1, plotTop - 10);
+    const maxBadgeY = plotBottom;
+    const ys = spreadLabelYs(badges.map((b) => b.y), BADGE_H + 1, minBadgeY, maxBadgeY);
+    ctx.font = BADGE_FONT;
+    ctx.textAlign = "center";
+    badges.forEach((b, i) => {
+      const y = ys[i];
+      ctx.fillStyle = "#020616";
+      ctx.fillRect(badgeX - 2, y - BADGE_H / 2 - 1, badgeW + 4, BADGE_H + 2);
+      roundRect(ctx, badgeX, y - BADGE_H / 2, badgeW, BADGE_H, 3);
+      ctx.fillStyle = b.color;
+      ctx.fill();
+      ctx.fillStyle = b.fg;
+      ctx.fillText(b.text, badgeX + badgeW / 2, y + 0.5);
+    });
+    const volTop = plotBottom + 6;
+    if (layout.volH > 0 && count > 0) {
+      let maxVol = 0;
+      for (const c of candles) if ((c.volume ?? 0) > maxVol) maxVol = c.volume ?? 0;
+      const slot = plotWidth / Math.max(1, count);
+      const barW = Math.max(1, Math.min(22, Math.floor(slot * 0.72)));
+      candles.forEach((c, i) => {
+        const v = c.volume ?? 0;
+        if (v <= 0 || maxVol <= 0) return;
+        const h = v / maxVol * (layout.volH - 12);
+        ctx.fillStyle = colorWithAlpha(c.close >= c.open ? bullish : bearish, 0.6);
+        ctx.fillRect(Math.round(indexToX(i, count, bounds) - barW / 2), volTop + layout.volH - h, barW, h);
+      });
+      ctx.font = FONT;
+      ctx.fillStyle = textColor;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText("VOLUME", padding.left + 4, volTop + 1);
+    }
+    if (count > 0) {
+      const axisY = height - TIME_AXIS_H + 5;
+      const maxLabels = Math.max(2, Math.min(6, Math.floor(plotWidth / 70)));
+      const step = Math.max(1, Math.ceil(count / maxLabels));
+      ctx.font = FONT;
+      ctx.fillStyle = textColor;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      for (let i = 0; i < count; i += step) {
+        const label = formatCandleTime(candles[i].t, true, timeZone);
+        const w = measureTextWidth(ctx, label);
+        ctx.fillText(label, clampLabelX(indexToX(i, count, bounds), w, 2, plotRight), axisY);
+      }
+    }
+    if (showWatermark) {
+      drawVortexWatermark(ctx, bounds, 0.5, { x: containerWidth - 6, y: height - 7, align: "right" });
+    }
+  }, [canvasRef, bounds, band, layout, offscreenTexts, showWatermark, containerWidth, height, dpr, candles, vwapSeries, gammaProfile, spot, hasSpot, bullish, bearish, spotColor, textColor, timeZone]);
+  return /* @__PURE__ */ jsxs26(
+    "div",
+    {
+      ref: containerRef,
+      className: `relative w-full overflow-hidden select-none ${className}`,
+      style: { height },
+      children: [
+        /* @__PURE__ */ jsx27("canvas", { ref: canvasRef, className: "block h-full w-full", style: { touchAction: "pan-y" } }),
+        /* @__PURE__ */ jsx27("canvas", { ref: overlayRef, className: "pointer-events-none absolute inset-0 block" }),
+        candles.length === 0 && /* @__PURE__ */ jsx27("div", { className: "pointer-events-none absolute inset-0 flex items-center justify-center", children: /* @__PURE__ */ jsx27("span", { className: "rounded-md border border-white/10 bg-black/70 px-3 py-1.5 text-[11px] font-mono text-zinc-400", children: emptyMessage }) })
+      ]
+    }
+  );
+};
 export {
   VORTEX_THEME,
   VortexAreaChart,
@@ -7741,6 +8176,7 @@ export {
   VortexChoroplethMap,
   VortexConeChart,
   VortexFootprintChart,
+  VortexGammaLevelsChart,
   VortexGauge,
   VortexHeatmap,
   VortexHeikinAshiChart,
@@ -7764,6 +8200,7 @@ export {
   computeBiasBounds,
   computeBoxPlotStats,
   computeHeikinAshi,
+  computeLevelBand,
   computePointAndFigure,
   computeRangeBars,
   computeRenkoBricks,
@@ -7780,6 +8217,7 @@ export {
   drawChoropleth,
   drawCrosshair,
   drawFootprintChart,
+  drawGammaSideProfile,
   drawGenericCrosshair,
   drawHeatmap,
   drawLineChart,
@@ -7805,9 +8243,13 @@ export {
   getVisibleCount,
   getZoomLevel,
   isViewportZoomed,
+  layoutLevelChips,
+  levelStyle,
   measureTextWidth,
   nearestDatumIndex,
   nearestTimeIndex,
+  offscreenBadgeText,
+  offscreenLevelTag,
   panViewport,
   parseZoneColor,
   publishCrosshairSync,

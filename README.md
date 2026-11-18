@@ -108,6 +108,41 @@ export function ConeChart({ candles, currentPrice, rangeHigh, rangeLow, expirati
 }
 ```
 
+### 4. Gamma Levels (`VortexGammaLevelsChart`)
+
+Intraday candles with key gamma levels (call wall, put wall, max pain, flip, pin, GEX king, VWAP) drawn as dashed lines, label chips on the left, coloured price badges on the right axis, a spot badge, a price-aligned gamma profile panel and a volume sub-panel. The price band is fitted to the candles and spot plus levels within ±3% of spot; farther levels appear as named edge badges (`▲ CALL WALL 760.00`, or `▲ CW 760.00` below 640px wide: CW / PW / MP / FLIP / PIN / KING / VWAP) instead of squashing the candles. Levels with a non-finite price are ignored.
+
+```tsx
+import { VortexGammaLevelsChart } from "vortex-charts";
+
+<VortexGammaLevelsChart
+  candles={candles}            // 5-min intraday, premarket included
+  vwapSeries={vwap}
+  levels={[
+    { price: 750, kind: "callWall", label: "CALL WALL" },
+    { price: 740, kind: "putWall", label: "PUT WALL" },
+    { price: 764.71, kind: "flip", label: "FLIP ↑ 764.71" },
+  ]}
+  gammaProfile={[{ strike: 745, gex: -1.2e9 }, { strike: 750, gex: 2.4e9 }]}
+  spot={744.97}
+/>
+```
+
+| Prop | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `candles` | `Candle[]` | — | 5-min intraday, premarket included |
+| `vwapSeries` | `{ t: number; vwap: number }[]` | — | Grey dashed line matched to candle `t` |
+| `levels` | `GammaLevel[]` | — | `{ price, kind, label, tag? }`; same-price levels merge into one chip |
+| `gammaProfile` | `GammaProfilePoint[]` | — | `{ strike, gex }`; right panel (~22% width, ≥ 56px) |
+| `spot` | `number` | — | Spot badge on the price axis |
+| `showLevels` | `boolean` | `true` | Eye toggle: hides level lines, chips and badges |
+| `height` | `number` | `420` | |
+| `timeZone` | `string` | `"America/New_York"` | Time axis labels |
+| `emptyMessage` | `string` | `"No intraday data yet"` | Shown when `candles` is empty (levels still drawn) |
+| `className` | `string` | — | |
+| `theme` | `VortexThemeOverride` | — | `bullish`, `bearish`, `spot`, `text` colours |
+| `showWatermark` | `boolean` | `true` | Canvas VorteXbot.app mark in the time-axis row, bottom-right (pass `false` when the host renders its own) |
+
 ---
 
 ## ðŸŽ¨ Theme Tokens
